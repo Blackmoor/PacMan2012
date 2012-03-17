@@ -3,7 +3,6 @@ package pacman.entries.pacman;
 
 import java.awt.Color;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Random;
 
 import pacman.controllers.Controller;
@@ -191,7 +190,7 @@ public class MyPacMan extends Controller<MOVE>
 		for (int p: game.getActivePowerPillsIndices()) {
 			if (scores[p] >= 0) {
 				boolean eat = eatMe(p);
-				if (pacman[p].distance < dist && eat) {
+				if (pacman[p].distance < dist && (!safe || eat)) {
 					pp = p;
 					dist = pacman[p].distance;
 				}
@@ -207,7 +206,7 @@ public class MyPacMan extends Controller<MOVE>
 					}
 				}
 				if (eat)
-				scores[p] += POWER_PILL*weighting(p);
+					scores[p] += POWER_PILL*weighting(p);
 			}
 		}
 		if (pp != -1)
