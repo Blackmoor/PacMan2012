@@ -3,6 +3,7 @@ package pacman.entries.pacman;
 
 import java.awt.Color;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Random;
 
 import pacman.controllers.Controller;
@@ -20,13 +21,33 @@ import static pacman.game.Constants.*;
  */
 public class MyPacMan extends Controller<MOVE>
 {
+	private class ghostInfo {
+		public int		distance;	// Distance to the node
+		public MOVE		dir;		//Direction of arrival
+		public boolean	hunter;		//true if the ghost is hunting, false if edible
+		public int		turns;		//How many turn choices ghost makes to get here
+		
+		public ghostInfo() {
+			this.distance = Integer.MAX_VALUE;
+			this.dir = MOVE.NEUTRAL;
+			this.hunter = false;
+			this.turns = 0;
+		}
+	}
+	
+	private class pacmanInfo {
+		public int		distance;	//Distance to node
+		public MOVE		dir;		//Direction of arrival
+		
+		public pacmanInfo() {
+			this.distance = Integer.MAX_VALUE;
+			this.dir = MOVE.NEUTRAL;
+		}
+	}
+	
 	private Game 			game;
-	private int[]			pacman;	//Distance of pacman from each node - updated each game tick
-	private MOVE[]			pacdir;	//The direction the pacman was moving when it reached each node for the first time.
-	private int[][]			ghosts; //Distance of each ghost from each node - updated each game tick
-	private MOVE[][]		dirs;	//The direction a ghost was moving at each node - updated each game tick
-	private boolean[][]		hunter;	//True if the the ghost is not edible at this node - updated each game tick.
-	private int[][] 		turns; //The number of turn choices the ghost makes to reach each node
+	private pacmanInfo[]	pacman;	//Distance of pacman from each node - updated each game tick
+	private ghostInfo[][]	ghosts; //Distance of each ghost from each node - updated each game tick
 	private float[] 		block; //The combined odds for any ghost to block each node
 	private float[]			scores; //The score for each node
 	private int[]			bestPath; //The nodes that make up the best path for the pacman to take
@@ -69,13 +90,10 @@ public class MyPacMan extends Controller<MOVE>
 		/*
 		 * For each ghost, populate the ghosts and turns arrays
 		 */
-		ghosts = new int[NUM_GHOSTS][game.getNumberOfNodes()];
-		turns = new int[NUM_GHOSTS][game.getNumberOfNodes()];
-		dirs = new MOVE[NUM_GHOSTS][game.getNumberOfNodes()];
-		hunter = new boolean[NUM_GHOSTS][game.getNumberOfNodes()];
+		ghosts = new ghostInfo[NUM_GHOSTS][game.getNumberOfNodes()];
 		for (int g=0; g<NUM_GHOSTS; g++)
 			for (int n=0; n<game.getNumberOfNodes(); n++)
-				ghosts[g][n] = CUTOFF;
+				ghosts[g][n] = new ghostInfo();
 		
 		for (GHOST g: GHOST.values()) {
 			if (game.getGhostLairTime(g) > 0)
@@ -89,10 +107,10 @@ public class MyPacMan extends Controller<MOVE>
 		/*
 		 * Populate the distance to each node for the PacMan, a node is blocked if the nearest ghost gets to it before the pacman
 		 */
-		pacman = new int[game.getNumberOfNodes()];
-		pacdir = new MOVE[game.getNumberOfNodes()];
-		walk(game.getPacmanCurrentNodeIndex(), 0, MOVE.NEUTRAL);
-		pacman[game.getPacmanCurrentNodeIndex()] = 0;
+		pacman = new pacmanInfo[game.getNumberOfNodes()];
+		for (int n=0; n<game.getNumberOfNodes(); n++)
+			pacman[n] = new pacmanInfo();
+		pacmanWalk(game.getPacmanCurrentNodeIndex(), 0, MOVE.NEUTRAL);
 	}
 	
 	private void initialiseScores() {
@@ -105,13 +123,12 @@ public class MyPacMan extends Controller<MOVE>
 			scores[node] = -1;
 			float chance = 1f;
 			for (GHOST g: GHOST.values())
-				if (hunter[ghostIndex(g)][node])
-					chance *= (1f-1f/(1+turns[ghostIndex(g)][node]));
+				if (ghosts[ghostIndex(g)][node].hunter)
+					chance *= (1f-1f/(1+ghosts[ghostIndex(g)][node].turns));
 			block[node] = 1f - chance;
 			if (game.getNeighbouringNodes(node).length > 0) {
 				GHOST nearestHunter = nearestBlocker(node);
-				if (nearestHunter == null || ((node == game.getPacmanCurrentNodeIndex() || pacman[node] > 0) &&
-												ghosts[ghostIndex(nearestHunter)][node] - pacman[node] > EAT_DISTANCE)) { //Safe
+				if (nearestHunter == null || ghosts[ghostIndex(nearestHunter)][node].distance - pacman[node].distance > EAT_DISTANCE) { //Safe
 					scores[node] = 1;
 					if (ZONE_DEBUG)
 						GameView.addPoints(game, new Color(0, weighting(node), 0), node);
@@ -144,8 +161,8 @@ public class MyPacMan extends Controller<MOVE>
 		
 		//Find nearest Hunting Ghost going in a different direction to the pacman
 		for (GHOST g: GHOST.values()) {
-			int dist = ghosts[ghostIndex(g)][node];
-			if (hunter[ghostIndex(g)][node] && dist < nearestHunter && dirs[ghostIndex(g)][node] != pacdir[node]) {
+			int dist = ghosts[ghostIndex(g)][node].distance;
+			if (ghosts[ghostIndex(g)][node].hunter && dist < nearestHunter && ghosts[ghostIndex(g)][node].dir != pacman[node].dir) {
 				nearestHunter = dist;
 				id = g;
 			}
@@ -174,18 +191,18 @@ public class MyPacMan extends Controller<MOVE>
 		for (int p: game.getActivePowerPillsIndices()) {
 			if (scores[p] >= 0) {
 				boolean eat = eatMe(p);
-				if (pacman[p] < dist && eat) {
+				if (pacman[p].distance < dist && eat) {
 					pp = p;
-					dist = pacman[p];
+					dist = pacman[p].distance;
 				}
 				//If we don't want to eat the power pill yet we hover near by
 				//This is achieved by not scoring the pp when we are 1 node away if we are safe
 				if (!eat || !safe) {
-					if (pacman[p] - EAT_DISTANCE > 1)
+					if (pacman[p].distance - EAT_DISTANCE > 1)
 						eat = true;
 					else {
 						GHOST g = nearestBlocker(p);
-						if (g != null && pacman[game.getGhostCurrentNodeIndex(g)] <= 4)
+						if (g != null && pacman[game.getGhostCurrentNodeIndex(g)].distance <= 4)
 							eat = true;
 					}
 				}
@@ -209,18 +226,18 @@ public class MyPacMan extends Controller<MOVE>
 				int jn = getGhostNode(g, Integer.MAX_VALUE);	//The junction the ghost is heading to
 				int chase; //Distance travelled to catch ghost
 				int target;
-				if (pacman[jn] <= ghosts[ghostIndex(g)][jn]) { //We are closer to the junction so we will catch it on the current path
+				if (pacman[jn].distance <= ghosts[ghostIndex(g)][jn].distance) { //We are closer to the junction so we will catch it on the current path
 					//Work out if it is quicker to chase the ghost or intercept it
-					if (pacdir[game.getGhostCurrentNodeIndex(g)] == game.getGhostLastMoveMade(g)) { //Chase distance is twice current distance
-						target = getGhostNode(g, pacman[game.getGhostCurrentNodeIndex(g)]);
-						chase = 2*pacman[target];
+					if (pacman[game.getGhostCurrentNodeIndex(g)].dir == game.getGhostLastMoveMade(g)) { //Chase distance is twice current distance
+						target = getGhostNode(g, pacman[game.getGhostCurrentNodeIndex(g)].distance);
+						chase = 2*pacman[target].distance;
 					} else { //Intercept distance is 2/3 current distance
-						target = getGhostNode(g, pacman[game.getGhostCurrentNodeIndex(g)]/3);
-						chase = 2*pacman[target]/3;
+						target = getGhostNode(g, pacman[game.getGhostCurrentNodeIndex(g)].distance/3);
+						chase = 2*pacman[target].distance/3;
 					}
 				} else { //We head to junction then chase it
 					target = jn;
-					chase = 3*pacman[target]-ghosts[ghostIndex(g)][target];
+					chase = 3*pacman[target].distance-ghosts[ghostIndex(g)][target].distance;
 				}
 				if (scores[target] >= 0 && game.getGhostEdibleTime(g) - chase > EAT_DISTANCE && chase < nd) {
 					nd = chase;
@@ -314,7 +331,7 @@ public class MyPacMan extends Controller<MOVE>
 		int edibleTime = (int)(EDIBLE_TIME*(Math.pow(EDIBLE_TIME_REDUCTION,game.getCurrentLevel())));
 		int timeRemaining = LEVEL_LIMIT - game.getCurrentLevelTime();
 		int powerPillsRemaining = game.getActivePowerPillsIndices().length;
-		int timeToEat = pacman[node] + 50 + edibleTime*powerPillsRemaining + (powerPillsRemaining-1)*120;
+		int timeToEat = pacman[node].distance + 50 + edibleTime*powerPillsRemaining + (powerPillsRemaining-1)*120;
 		if (timeRemaining < timeToEat)
 			return true;
 		
@@ -332,7 +349,7 @@ public class MyPacMan extends Controller<MOVE>
 			GHOST ng = null;
 			int gd = Integer.MAX_VALUE;
 		for (GHOST g: GHOST.values()) {
-				if (!processed[ghostIndex(g)] && game.getGhostLairTime(g) < pacman[node]) {
+				if (!processed[ghostIndex(g)] && game.getGhostLairTime(g) < pacman[node].distance) {
 					int path = (int)game.getDistance(from, (game.getGhostLairTime(g) > 0)?game.getGhostInitialNodeIndex():game.getGhostCurrentNodeIndex(g), DM.PATH);
 					if (path < gd) {
 						ng = g;
@@ -361,13 +378,13 @@ public class MyPacMan extends Controller<MOVE>
 	 * Walk the maze and record the distance to get to each node
 	 * Hunting ghosts and power pills block the path
 	 */
-	private void walk(int node, int dist, MOVE dir) {
-		if (dist < CUTOFF && (pacman[node] == 0 || dist < pacman[node])) {
-			pacman[node] = dist;
-			pacdir[node] = dir;
-			if (!isBlocked(node, dist, dir)) {
+	private void pacmanWalk(int node, int dist, MOVE dir) {
+		if (dist < CUTOFF && dist < pacman[node].distance) {
+			pacman[node].distance = dist;
+			pacman[node].dir = dir;
+			if (!isBlocked(node)) {
 				for (MOVE m: game.getPossibleMoves(node))
-					walk(getNeighbour(node, m), dist+1, m);
+					pacmanWalk(getNeighbour(node, m), dist+1, m);
 			}
 		}
 	}
@@ -376,35 +393,35 @@ public class MyPacMan extends Controller<MOVE>
 	 * Walk the maze as a ghost and record the distance to each node and the number of turns at jns
 	 */
 	private void ghostWalk(GHOST g, int node, MOVE banned, int dist, int t) {
-		if (dist < CUTOFF && dist < ghosts[ghostIndex(g)][node]) {
-			ghosts[ghostIndex(g)][node] = dist;	
-			turns[ghostIndex(g)][node] = t;
-			dirs[ghostIndex(g)][node] = banned.opposite();			
-			hunter[ghostIndex(g)][node] = (game.getGhostEdibleTime(g) <= dist);
+		if (dist < CUTOFF && dist < ghosts[ghostIndex(g)][node].distance) {
+			ghosts[ghostIndex(g)][node].distance = dist;	
+			ghosts[ghostIndex(g)][node].turns = t;
+			ghosts[ghostIndex(g)][node].dir = banned.opposite();			
+			ghosts[ghostIndex(g)][node].hunter = (game.getGhostEdibleTime(g) <= dist);
 
 			for (MOVE m: game.getPossibleMoves(node)) {
 				int next = getNeighbour(node, m);
 				if (next != -1 && m != banned)
-					ghostWalk(g, next, m.opposite(), dist + (hunter[ghostIndex(g)][node]?1:2), t + countMoves(node));
+					ghostWalk(g, next, m.opposite(), dist + (ghosts[ghostIndex(g)][node].hunter?1:2), t + countChoices(node));
 			}
 		}
 	}
 	
 	/*
-	 * How many valid moves goes a ghost have at this node
+	 * How many valid move choices does a ghost have at this node
 	 */
-	private int countMoves(int node)
+	private int countChoices(int node)
 	{
 		int choices = game.getNeighbouringNodes(node).length;
 		if (choices > 2)
-			return choices -1;	//Can't go backwards
-		return 0;
+			return choices - 1;	//Can't go backwards so one less choice
+		return 0; //if we are not at a junction we have no choices (only 1 valid move)
 	}
 	
 	/*
 	 * Power pills and hunter ghosts block the maze walk
 	 */
-	private boolean isBlocked(int node, int dist, MOVE dir) {
+	private boolean isBlocked(int node) {
 		for (int pp: game.getActivePowerPillsIndices())
 			if (pp == node)
 				return true;
@@ -412,11 +429,11 @@ public class MyPacMan extends Controller<MOVE>
 			/*
 			 * Only hunter ghosts can block and then only if they are
 			 * 1. Get to the node before us from a different direction
-			 * 2. Are travelling in the same direction and we are within 4 nodes of us as a game.reverse would kill us
+			 * 2. Are travelling in the same direction and we are within 2 nodes of the eat distance from us as a game.reverse would kill us
 			 */
-			if (hunter[ghostIndex(g)][node] &&
-					((dirs[ghostIndex(g)][node] != dir && ghosts[ghostIndex(g)][node] <= dist + EAT_DISTANCE) ||
-					 (dirs[ghostIndex(g)][node] == dir && ghosts[ghostIndex(g)][node] < dist && dist - ghosts[ghostIndex(g)][node] <= EAT_DISTANCE + 2)))
+			if (ghosts[ghostIndex(g)][node].hunter &&
+					((ghosts[ghostIndex(g)][node].dir != pacman[node].dir && ghosts[ghostIndex(g)][node].distance - pacman[node].distance <= EAT_DISTANCE) ||
+					 (ghosts[ghostIndex(g)][node].dir == pacman[node].dir && ghosts[ghostIndex(g)][node].distance < pacman[node].distance && pacman[node].distance - ghosts[ghostIndex(g)][node].distance <= EAT_DISTANCE + 2)))
 				return true;
 		}
 		return false;
