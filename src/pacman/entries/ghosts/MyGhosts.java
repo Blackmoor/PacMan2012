@@ -121,7 +121,7 @@ public final class MyGhosts extends Controller<EnumMap<GHOST,MOVE>>
 						distance = game.getGhostLairTime(g) + maze.getDistance(game.getGhostInitialNodeIndex(), nodes[o], MOVE.NEUTRAL, MOVE.NEUTRAL, banned[o]);
 					else {
 						distance = maze.getDistance(game.getGhostCurrentNodeIndex(g), nodes[o], game.getGhostLastMoveMade(g), MOVE.NEUTRAL, MOVE.NEUTRAL);
-						if (game.getGhostEdibleTime(g) > distance) //Would be edible on arrival
+						if (game.getGhostEdibleTime(g) > distance - EAT_DISTANCE) //Would be edible on arrival
 							distance = Integer.MAX_VALUE;
 						else
 							distance += game.getGhostEdibleTime(g) / 2;
