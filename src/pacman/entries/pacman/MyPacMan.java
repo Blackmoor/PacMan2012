@@ -61,8 +61,8 @@ public class MyPacMan extends Controller<MOVE>
 	int				lastPos;
 	
 	private static final int	CUTOFF = 350;
-	private static final boolean PATH_DEBUG = false;
-	private static final boolean ZONE_DEBUG = false;
+	private static final boolean PATH_DEBUG = true;
+	private static final boolean ZONE_DEBUG = true;
 	
 	//Place your game logic here to play the game as Ms Pac-Man
 	public MOVE getMove(Game game,long timeDue)
@@ -112,10 +112,11 @@ public class MyPacMan extends Controller<MOVE>
 		pacmanWalk(game.getPacmanCurrentNodeIndex(), 0, MOVE.NEUTRAL);
 	}
 	
-	private void initialiseScores() {
+	private float initialiseScores() {
 		/*
 		 * Set the score for each reachable node to 1 and unreachable to -1
 		 */
+		float result = 0; //Percentage of node that are safe
 		block = new float[game.getNumberOfNodes()];
 		scores = new float[game.getNumberOfNodes()];
 		for (int node=0; node<scores.length; node++) {
@@ -129,11 +130,13 @@ public class MyPacMan extends Controller<MOVE>
 				GHOST nearestHunter = nearestBlocker(node);
 				if (nearestHunter == null || ghosts[ghostIndex(nearestHunter)][node].distance - pacman[node].distance > EAT_DISTANCE) { //Safe
 					scores[node] = 1;
+					result++;
 					if (ZONE_DEBUG)
 						GameView.addPoints(game, new Color(0, weighting(node), 0), node);
 				}
 			}
-		}				
+		}
+		return result / game.getNumberOfNodes() * 100;
 	}
 	
 	private int scoreEscapeRoutes() {
@@ -255,10 +258,10 @@ public class MyPacMan extends Controller<MOVE>
 	private void scoreNodes() {
 		ghostMovement();
 		pacmanMovement();
-		initialiseScores();
+		float safeZone = initialiseScores();
 		int routes = scoreEscapeRoutes();
-		scorePills(routes > NUM_GHOSTS);
-		scoreEdibleGhosts();	
+		scorePills(safeZone > 80 || routes > NUM_GHOSTS);	
+		scoreEdibleGhosts();
 	}
 	
 	/*
