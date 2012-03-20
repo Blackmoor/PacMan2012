@@ -24,13 +24,11 @@ public class MyPacMan extends Controller<MOVE>
 		public int		distance;	// Distance to the node
 		public MOVE		dir;		//Direction of arrival
 		public boolean	hunter;		//true if the ghost is hunting, false if edible
-		public int		turns;		//How many turn choices ghost makes to get here
 		
 		public ghostInfo() {
 			this.distance = Integer.MAX_VALUE;
 			this.dir = MOVE.NEUTRAL;
 			this.hunter = false;
-			this.turns = 0;
 		}
 	}
 	
@@ -52,17 +50,12 @@ public class MyPacMan extends Controller<MOVE>
 	private int[]			bestPath; //The nodes that make up the best path for the pacman to take
 	private float			bestScore; //The total score of all nodes on the best path
 	
-	private static final Random			rnd = new Random(0); //Used to break tie breaks in paths with the same score
-
-	//Debug info
-	int				lastTarget;
-	int				lastDir;
-	int				lastLives;
-	int				lastPos;
+	private static final Random			rnd = new Random(); //Used to break tie breaks in paths with the same score
 	
 	private static final int	CUTOFF = 350;
-	private static final boolean PATH_DEBUG = true;
-	private static final boolean ZONE_DEBUG = true;
+	private static final boolean PATH_DEBUG = false;
+	private static final boolean ZONE_DEBUG = false;
+	final Color[] ghostColour = new Color[] { Color.red, Color.pink, Color.orange, Color.cyan };
 	
 	//Place your game logic here to play the game as Ms Pac-Man
 	public MOVE getMove(Game game,long timeDue)
@@ -96,9 +89,9 @@ public class MyPacMan extends Controller<MOVE>
 		
 		for (GHOST g: GHOST.values()) {
 			if (game.getGhostLairTime(g) > 0)
-				ghostWalk(g, game.getGhostInitialNodeIndex(), MOVE.NEUTRAL, game.getGhostLairTime(g), 0);
+				ghostWalk(g, game.getGhostInitialNodeIndex(), MOVE.NEUTRAL, game.getGhostLairTime(g));
 			else
-				ghostWalk(g, game.getGhostCurrentNodeIndex(g), game.getGhostLastMoveMade(g).opposite(), 0, 0);
+				ghostWalk(g, game.getGhostCurrentNodeIndex(g), game.getGhostLastMoveMade(g).opposite(), 0);
 		}
 	}
 	
@@ -121,18 +114,15 @@ public class MyPacMan extends Controller<MOVE>
 		scores = new float[game.getNumberOfNodes()];
 		for (int node=0; node<scores.length; node++) {
 			scores[node] = -1;
-			float chance = 1f;
-			for (GHOST g: GHOST.values())
-				if (ghosts[ghostIndex(g)][node].hunter)
-					chance *= (1f-1f/(1+ghosts[ghostIndex(g)][node].turns));
-			block[node] = 1f - chance;
 			if (game.getNeighbouringNodes(node).length > 0) {
-				GHOST nearestHunter = nearestBlocker(node);
-				if (nearestHunter == null || ghosts[ghostIndex(nearestHunter)][node].distance - pacman[node].distance > EAT_DISTANCE) { //Safe
+				ArrayList<GHOST> nearestHunter = nearestBlocker(node);
+				if (nearestHunter.size() == 0 || ghosts[ghostIndex(nearestHunter.get(0))][node].distance - pacman[node].distance > EAT_DISTANCE) { //Safe
 					scores[node] = 1;
 					result++;
+					/*
 					if (ZONE_DEBUG)
-						GameView.addPoints(game, new Color(0, weighting(node), 0), node);
+						GameView.addPoints(game, new Color(0, 128, 0), node);
+					*/
 				}
 			}
 		}
@@ -141,47 +131,42 @@ public class MyPacMan extends Controller<MOVE>
 	
 	private int scoreEscapeRoutes() {
 		int escapeScore = 70;
-		final Color[] ghostColour = new Color[] { Color.red, Color.pink, Color.orange, Color.cyan };
 		
 		//Score escape routes
 		int []eventHorizon = getEventHorizon(scores);
 		for (int n: eventHorizon) {
 			int jn = nearestJunction(n, scores);
 			if (jn != -1)
-				scores[jn] += escapeScore*weighting(jn);
-			if (ZONE_DEBUG)
-				GameView.addPoints(game, ghostColour[ghostIndex(nearestBlocker(n))], n);
+				scores[jn] += escapeScore*(1-block[jn]);
 		}
 		
 		return eventHorizon.length;
 	}
 	
-	private GHOST nearestBlocker(int node)
+	private ArrayList<GHOST> nearestBlocker(int node)
 	{
+		ArrayList<GHOST> result = new ArrayList<GHOST>();
 		int nearestHunter = Integer.MAX_VALUE;
-		GHOST id = null;
 		
 		//Find nearest Hunting Ghost going in a different direction to the pacman
 		for (GHOST g: GHOST.values()) {
 			int dist = ghosts[ghostIndex(g)][node].distance;
-			if (ghosts[ghostIndex(g)][node].hunter && dist < nearestHunter && ghosts[ghostIndex(g)][node].dir != pacman[node].dir) {
+			if (ghosts[ghostIndex(g)][node].hunter && dist < nearestHunter && (pacman[node].distance == Integer.MAX_VALUE || ghosts[ghostIndex(g)][node].dir != pacman[node].dir)) {
 				nearestHunter = dist;
-				id = g;
+				result.clear();
+				result.add(g);
+			} else if (ghosts[ghostIndex(g)][node].hunter && dist == nearestHunter && (pacman[node].distance == Integer.MAX_VALUE || ghosts[ghostIndex(g)][node].dir != pacman[node].dir)) {
+				result.add(g);
 			}
 		}
 		
-		return id;
-	}
-	
-	private float weighting(int node)
-	{
-		return 1f-block[node];
+		return result;
 	}
 
 	private void scorePills(boolean safe) {
 		for (int p: game.getActivePillsIndices())
 			if (scores[p] >= 0)
-				scores[p] += PILL*weighting(p);
+				scores[p] += PILL;
 		
 		/*
 		 * Score the best power pill - we want to wait near to these until we have to eat it
@@ -203,13 +188,13 @@ public class MyPacMan extends Controller<MOVE>
 					if (pacman[p].distance - EAT_DISTANCE > 1)
 						eat = true;
 					else {
-						GHOST g = nearestBlocker(p);
-						if (g != null && pacman[game.getGhostCurrentNodeIndex(g)].distance <= 4)
+						ArrayList<GHOST> g = nearestBlocker(p);
+						if (g.size() > 0 && pacman[game.getGhostCurrentNodeIndex(g.get(0))].distance <= 4)
 							eat = true;
 					}
 				}
 				if (eat)
-					scores[p] += POWER_PILL*weighting(p);
+					scores[p] += POWER_PILL;
 			}
 		}
 		if (pp != -1)
@@ -284,24 +269,217 @@ public class MyPacMan extends Controller<MOVE>
 	}
 	
 	/*
-	 * Find all nodes that are unsafe and have an safe neighbour
+	 * Find all nodes that are safe and have an unsafe neighbour
+	 * Score each one accord to how likely a ghost is to block it
 	 */
 	private int [] getEventHorizon(float []scores) {
 		ArrayList<Integer> edge = new ArrayList<Integer>();
 		
 		for (int n=0; n<game.getNumberOfNodes(); n++) {
-			if (scores[n] < 0) {
+			if (scores[n] >= 0) {
 				for (int next: game.getNeighbouringNodes(n)) {
-					if (scores[next] >= 0) {
+					if (scores[next] < 0) {
 						edge.add(n);
 						break;
 					}
 				}
 			}
 		}
+		
+		//Work out how much wiggle room we have, this is the time before we are eaten if we stay still
+		ArrayList<GHOST> ng = nearestBlocker(game.getPacmanCurrentNodeIndex());
+		int decisionTime = CUTOFF;
+		if (ng.size() > 0)
+			decisionTime = ghosts[ghostIndex(ng.get(0))][game.getPacmanCurrentNodeIndex()].distance - EAT_DISTANCE - 1;
+		
+		float likelihood[] = new float[edge.size()];
+		for (GHOST g: GHOST.values()) {
+			ArrayList<ArrayList<Integer>> segments = makeSegments(g, edge);
+			if (PATH_DEBUG) {
+				for (ArrayList<Integer> segment: segments)
+					for (int i=1; i<segment.size(); i++)
+						if (game.getNodeXCood(segment.get(i)) != 0 && game.getNodeXCood(segment.get(i-1)) != 0)
+							GameView.addLines(game, ghostColour[ghostIndex(g)], segment.get(i), segment.get(i-1));
+			}
+			//Now we need to score the event horizon points according to how likely a ghost is to block it
+			//When a ghost needs to make a decision, we check to see if the pacman needs to make one first, if so the pacman is blocked
+			for (int i=0; i<edge.size(); i++) {			
+				ArrayList<ArrayList<Integer>> pathSegments = makePath(segments, edge.get(i));
+				//Check the likelihood of blocking each end point of the segments that make up the total path
+				if (pathSegments.size() > 0) {
+					int jn = nearestJunction(edge.get(i), scores); //This is the point the pacman must make a decision
+					int pacmanChoice = decisionTime;
+					if (jn != -1)
+						pacmanChoice += pacman[jn].distance;
+					int choices = pathSegments.size()+1;
+					for (ArrayList<Integer> s: pathSegments) {
+						int node = s.get(s.size()-1); //the next junction where ghost makes a choice
+						if (pacmanChoice + decisionTime < ghosts[ghostIndex(g)][node].distance)
+							choices--;
+						else
+							break;
+					}
+					likelihood[i] = 1f-(1f-1f/choices)*(1f-likelihood[i]);
+					block[edge.get(i)] = 1f-likelihood[i];
+					if (jn != -1)
+						block[jn] = 1f - (1f-likelihood[i])*(1f-block[jn]);
+				}
+			}
+		}
+		
 		int [] result = new int[edge.size()];
-		for (int i=0; i<edge.size(); i++)
+		for (int i=0; i<edge.size(); i++) {
 			result[i] = edge.get(i);
+			if (ZONE_DEBUG) {
+				for (GHOST g: nearestBlocker(edge.get(i))) {
+					Color c = ghostColour[ghostIndex(g)];
+					GameView.addPoints(game, new Color(c.getRed(), c.getGreen(), c.getBlue(), (int)(255*(block[edge.get(i)]))), edge.get(i));
+				}
+			}
+		}
+		return result;
+	}
+	
+	/*
+	 * Given a set of path segments, return the subset that make up the path to the given node
+	 * The entries are ordered such that the given node is at the end
+	 */
+	private ArrayList<ArrayList<Integer>> makePath(ArrayList<ArrayList<Integer>> segments,  int node) {
+		ArrayList<ArrayList<Integer>> result = new ArrayList<ArrayList<Integer>>();
+		
+		ArrayList<Integer> found = getSegment(segments, node);
+		while (found != null) {
+			result.add(0, found);
+			found = getSegment(segments, found.get(0));
+			if (result.size() > 30)
+				break;
+		}
+		return result;
+	}
+	
+	/*
+	 * Find the segment that ends at the given node from the supplied list of segments
+	 */
+	private ArrayList<Integer> getSegment(ArrayList<ArrayList<Integer>> segments,  int node) {
+		
+		for (ArrayList<Integer> s: segments)
+			if (s.get(s.size() - 1) == node)
+				return s;
+		return null;
+	}
+	
+	
+	/*
+	 * Scan backwards from the event horizon and record the path segments that make up the best routes to the end points
+	 */
+	private ArrayList<ArrayList<Integer>> makeSegments(GHOST g, ArrayList<Integer> end) {
+		ArrayList<ArrayList<Integer>> result = new ArrayList<ArrayList<Integer>>();
+		ArrayList<ArrayList<Integer>> active = new ArrayList<ArrayList<Integer>>();
+		
+		int dist = 0;
+		for (int node: end) {
+			//Check to see if this ghost is the nearest blocker to this node
+			if (nearestBlocker(node).contains(g)) {
+				ArrayList<Integer> path = new ArrayList<Integer>();
+				path.add(node);
+				result.add(path);
+				active.add(path);
+				if (ghosts[ghostIndex(g)][node].distance > dist)
+					dist = ghosts[ghostIndex(g)][node].distance;
+			}
+		}
+		
+		if (result.size() == 0)
+			return result;
+		
+		//Changing the array list within the iterator breaks it, so we create a list of entries to remove or add and do it later
+		ArrayList<ArrayList<Integer>> toAdd = new ArrayList<ArrayList<Integer>>();
+		ArrayList<ArrayList<Integer>> toRemove = new ArrayList<ArrayList<Integer>>();
+		ArrayList<ArrayList<Integer>> deactivate = new ArrayList<ArrayList<Integer>>();
+		//Starting at the farthest point we add in the next node to each path
+		while (dist-- > 0) {
+			for (ArrayList<Integer> path: active) {
+				ArrayList<Integer> next = nearestNeighbour(g, path.get(0), dist);
+				if (next.size() > 1) { //There is more than 1 equi-distant route.
+					//Create new segments with the current node as the end point
+					for (int n: next) {
+						ArrayList<Integer> s = new ArrayList<Integer>();
+						s.add(0, path.get(0));
+						s.add(0, n);
+						toAdd.add(s);
+					}
+					deactivate.add(path);
+				} else if (next.size() == 1) {
+					//System.out.printf("Node %d -> %d\n", path.get(0), next.get(0));
+					path.add(0, next.get(0));
+				}
+			}
+			System.out.println("");
+			result.addAll(toAdd);
+			active.addAll(toAdd);
+			toAdd.clear();
+			active.removeAll(deactivate);
+			deactivate.clear();
+
+			//Search through the active segments, any that have the same starting node must be merged
+			for (int i=0; i<active.size(); i++) {
+				ArrayList<Integer> path = active.get(i);
+				boolean merge = false;	//set to true if a merge is found
+				for (int j=i+1; j<active.size(); j++) {
+					ArrayList<Integer> compare = active.get(j);
+					if ((int)path.get(0) == (int)compare.get(0)) {
+						deactivate.add(compare);
+						//Also remove any split segments that end at this end point
+						for (int k=0; k<active.size(); k++) {
+							ArrayList<Integer> split = active.get(k);
+							if (k != j && (int)split.get(split.size()-1) == (int)compare.get(compare.size()-1))
+								toRemove.add(split);
+						}
+						merge = true;
+					}
+				}
+				if (merge) {
+					deactivate.add(path);
+					//Also remove any split segments that end at this end point
+					for (int k=0; k<active.size(); k++) {
+						ArrayList<Integer> split = active.get(k);
+						if (k != i && (int)split.get(split.size()-1) == (int)path.get(path.size()-1))
+							toRemove.add(split);
+					}
+					ArrayList<Integer> s = new ArrayList<Integer>();
+					s.add(path.get(0));
+					toAdd.add(s);
+				}
+			}
+			active.removeAll(toRemove);
+			result.removeAll(toRemove);
+			toRemove.clear();
+			active.addAll(toAdd);
+			result.addAll(toAdd);
+			toAdd.clear();
+			active.removeAll(deactivate);
+			deactivate.clear();
+		}
+		
+		//Tidy up the list by removing any segments with only 1 node
+		for (ArrayList<Integer> s: result) {
+			if (s.size() < 2)
+				toRemove.add(s);
+		}
+		result.removeAll(toRemove);
+		return result;
+	}
+	
+	/*
+	 * Find all nodes 1 space nearer the given ghost than the current node
+	 */
+	private ArrayList<Integer> nearestNeighbour(GHOST g, int node, int dist) {
+		ArrayList<Integer> result = new ArrayList<Integer>();
+		
+		for (int n: game.getNeighbouringNodes(node)) {
+			if (ghosts[ghostIndex(g)][n].distance == dist)
+				result.add(n);
+		}
 		return result;
 	}
 	
@@ -378,7 +556,7 @@ public class MyPacMan extends Controller<MOVE>
 	
 	/*
 	 * Walk the maze and record the distance to get to each node
-	 * Hunting ghosts and power pills block the path
+	 * Hunting ghosts block the path
 	 */
 	private void pacmanWalk(int node, int dist, MOVE dir) {
 		if (dist < CUTOFF && dist < pacman[node].distance) {
@@ -394,39 +572,29 @@ public class MyPacMan extends Controller<MOVE>
 	/*
 	 * Walk the maze as a ghost and record the distance to each node and the number of turns at jns
 	 */
-	private void ghostWalk(GHOST g, int node, MOVE banned, int dist, int t) {
+	private void ghostWalk(GHOST g, int node, MOVE banned, int dist) {
 		if (dist < CUTOFF && dist < ghosts[ghostIndex(g)][node].distance) {
 			ghosts[ghostIndex(g)][node].distance = dist;	
-			ghosts[ghostIndex(g)][node].turns = t;
 			ghosts[ghostIndex(g)][node].dir = banned.opposite();			
 			ghosts[ghostIndex(g)][node].hunter = (game.getGhostEdibleTime(g) <= dist);
 
 			for (MOVE m: game.getPossibleMoves(node)) {
 				int next = getNeighbour(node, m);
 				if (next != -1 && m != banned)
-					ghostWalk(g, next, m.opposite(), dist + (ghosts[ghostIndex(g)][node].hunter?1:2), t + countChoices(node));
+					ghostWalk(g, next, m.opposite(), dist + (ghosts[ghostIndex(g)][node].hunter?1:2));
 			}
 		}
 	}
 	
 	/*
-	 * How many valid move choices does a ghost have at this node
-	 */
-	private int countChoices(int node)
-	{
-		int choices = game.getNeighbouringNodes(node).length;
-		if (choices > 2)
-			return choices - 1;	//Can't go backwards so one less choice
-		return 0; //if we are not at a junction we have no choices (only 1 valid move)
-	}
-	
-	/*
-	 * Power pills and hunter ghosts block the maze walk
+	 * Hunter ghosts block the maze walk
 	 */
 	private boolean isBlocked(int node) {
+		/*
 		for (int pp: game.getActivePowerPillsIndices())
 			if (pp == node)
 				return true;
+		*/
 		for (GHOST g: GHOST.values()) {
 			/*
 			 * Only hunter ghosts can block and then only if they are
