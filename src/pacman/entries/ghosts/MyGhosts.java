@@ -8,21 +8,17 @@ import pacman.game.Game;
 import static pacman.game.Constants.*;
 
 /*
- * This is the class you need to modify for your entry. In particular, you need to
- * fill in the getActions() method. Any additional classes you write should either
- * be placed in this package or sub-packages (e.g., game.entries.ghosts.mypackage).
+ * A simple implementation based on roles assigned to each ghost
+ * 1. Chase
+ * 2. Intercept
+ * 3. Protect power pill
+ * 4. Protect pill
  */
 public final class MyGhosts extends Controller<EnumMap<GHOST,MOVE>>
 {
 	private Game 				game;
 	private Maze				maze;
 	
-	/*
-	 * The original logic for the arcade game pacman ghost team
-	 * We cannot force a game reverse, so this is ignored.
-	 * The mazes are different to the original so there are no junctions where heading north is restricted
-	 * Otherwise the logic for the ghosts to chase is identical to original (with the known bugs fixed)
-	 */
 	public EnumMap<GHOST,MOVE> getMove(Game game,long timeDue)
 	{
 		EnumMap<GHOST,MOVE> myMoves=new EnumMap<GHOST,MOVE>(GHOST.class);

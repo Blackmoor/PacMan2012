@@ -17,7 +17,7 @@ public class Maze {
 	private int 			mazeNo;
 	private short[][][][]	junctions;
 	private Game					game;
-	private static final Random		rnd = new Random(0);
+	private static final Random		rnd = new Random();
 
 	
 	public Maze(Game game) {
