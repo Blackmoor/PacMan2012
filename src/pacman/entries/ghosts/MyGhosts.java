@@ -1,147 +1,263 @@
 package pacman.entries.ghosts;
 
-import java.util.EnumMap;
-import pacman.controllers.Controller;
-import pacman.game.Constants.GHOST;
-import pacman.game.Constants.MOVE;
-import pacman.game.Game;
 import static pacman.game.Constants.*;
 
-/*
- * A simple implementation based on roles assigned to each ghost
- * 1. Chase
- * 2. Intercept
- * 3. Protect power pill
- * 4. Protect pill
- */
-public final class MyGhosts extends Controller<EnumMap<GHOST,MOVE>>
-{
-	private Game 				game;
-	private Maze				maze;
+import java.awt.Color;
+import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.Random;
+
+import pacman.controllers.Controller;
+import pacman.game.Game;
+import pacman.game.GameView;
+import pacman.game.Constants.MOVE;
+
+public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {	
+	private class travel {
+		GHOST ghost;
+		int distance;
+		
+		public travel(GHOST g, int d) {
+			ghost = g;
+			distance = d;
+		}
+	}
+	
+	private class nodeInfo {
+		int pacman;	//the distance the pacman travelled to get here
+		EnumMap<MOVE, travel>	ghosts;	//For each direction of arrival, the ghost that gets here first and the distance it travelled.
+		
+		public nodeInfo() {
+			pacman = Integer.MAX_VALUE;
+			ghosts = new EnumMap<MOVE, travel>(MOVE.class);
+		}
+	}
+	
+	private Game 			game;
+	private nodeInfo[]		nodes;	//Information about the distance to this node for the pacman and ghosts
+	private boolean []		safe;	//The status of each node - safe (for the pacman) = true
+	private int				safeScore; //How many points are available in the safe zone
+	private static final Random			rnd = new Random();
 	
 	public EnumMap<GHOST,MOVE> getMove(Game game,long timeDue)
 	{
 		EnumMap<GHOST,MOVE> myMoves=new EnumMap<GHOST,MOVE>(GHOST.class);
+		double best = 10000;
+		MOVE[][] options = new MOVE[NUM_GHOSTS][];
+		MOVE[] nothing = { MOVE.NEUTRAL };
 		
-		this.game = game;
-		if (maze == null || maze.getCurMaze() != game.getMazeIndex())
-			maze = new Maze(game);
-		
+		boolean skip = true;
 		for (GHOST g: GHOST.values()) {
-			if (game.doesGhostRequireAction(g)) {
-				myMoves.put(g, getDir(g));
+			int gi = g.ordinal();
+			options[gi] = game.getPossibleMoves(game.getGhostCurrentNodeIndex(g), game.getGhostLastMoveMade(g));
+			if (options[gi].length == 0) //This only happens if we are in the lair
+				options[gi] = nothing;
+			if (game.doesGhostRequireAction(g))
+				skip = false;
+		}
+
+		/*
+		 * Loop over all possible ghost moves and pick the one that has the smallest safe zone for the pacman
+		 */
+		if (!skip) {
+			for (MOVE blinky: options[0]) {
+				for (MOVE pinky: options[1]) {
+					for (MOVE inky: options[2]) {
+						for (MOVE sue: options[3]) {
+							EnumMap<GHOST,MOVE> testMoves=new EnumMap<GHOST,MOVE>(GHOST.class);						
+							testMoves.put(GHOST.BLINKY, blinky);
+							testMoves.put(GHOST.PINKY, pinky);
+							testMoves.put(GHOST.INKY, inky);
+							testMoves.put(GHOST.SUE, sue);
+							/*
+							 * Pick the largest score the pacman can get
+							 */
+							double highest = 0;
+							for (MOVE pacman: game.getPossibleMoves(game.getPacmanCurrentNodeIndex())) {
+								this.game = game.copy();
+								this.game.advanceGame(pacman, testMoves);
+								
+								double score = 0;
+								if (!wasEaten(game, this.game)) {
+									walkMaze();
+									score = safeScore + scoreEdible() + rnd.nextDouble();
+								}							
+								if (score > highest)
+									highest = score;
+							}
+							/*
+							 * Pick the lowest score the ghosts can get
+							 */
+							if (highest < best) {
+								best = highest;
+								myMoves = testMoves;
+							}
+						}
+					}
+				}
 			}
 		}
+		
+		/*
+		if (safe != null) {
+			this.game = game;
+			walkMaze();
+			for (int i=0; i<safe.length; i++) {
+				if (safe[i])
+					GameView.addPoints(game, new Color(0, Math.max(0, 255-nodes[i].pacman), 0, 128), i);
+			}
+		}
+		*/
+		
 		return myMoves;
 	}
 	
 	/*
-	 * Called when an edible ghosts needs a place to hide
-	 * Head away from the pacman and away from other edible ghosts and towards hunting ghosts
-	 * Return the direction of travel
+	 * Try to work out if the pacman was eaten
 	 */
-	private MOVE getFrightenedDir(GHOST me) {
-		MOVE best = MOVE.NEUTRAL;
-		double score = -100;
-		int dist[] = new int[NUM_GHOSTS];
-		int nodes[] = new int[NUM_GHOSTS];
-		double scores[] = new double[NUM_GHOSTS]; //Points awarded for moving towards node
-		
-		for (GHOST g: GHOST.values()) {
-			if (g == me) {
-				nodes[g.ordinal()] = game.getPacmanCurrentNodeIndex();
-				scores[g.ordinal()] = -10;
-			} else {
-				nodes[g.ordinal()] = game.getGhostCurrentNodeIndex(g);
-				if (game.isGhostEdible(g))
-					scores[g.ordinal()] = -1;
-				else
-					scores[g.ordinal()] = 1;
-			}
-			dist[g.ordinal()] = (int)game.getDistance(game.getGhostCurrentNodeIndex(me), nodes[g.ordinal()], DM.PATH);
-			if (dist[g.ordinal()] != 0)
-				scores[g.ordinal()] /= dist[g.ordinal()];
-		}
-		
-		for (MOVE d: game.getPossibleMoves(game.getGhostCurrentNodeIndex(me))) {
-			double myScore = 0;
-			int node = maze.getNeighbour(game.getGhostCurrentNodeIndex(me), d);
-			if (node != -1 && d.opposite() != game.getGhostLastMoveMade(me)) {
-				for (GHOST g: GHOST.values()) {
-					int x = (int)game.getDistance(node, nodes[g.ordinal()], DM.PATH);
-					if (x < dist[g.ordinal()])
-						myScore += scores[g.ordinal()];
-					if (x > dist[g.ordinal()])
-						myScore -= scores[g.ordinal()];
-				}
-				if (myScore > score) {
-					score = myScore;
-					best = d;
-				}
-			}
-		}
-
-		return best;	
+	private boolean wasEaten(Game before, Game after) {
+		if (after.gameOver())
+			return true;
+		if (after.getPacmanNumberOfLivesRemaining() < before.getPacmanNumberOfLivesRemaining())
+			return true;
+		if (after.getPacmanNumberOfLivesRemaining() == before.getPacmanNumberOfLivesRemaining() &&
+				after.getScore() >= EXTRA_LIFE_SCORE && before.getScore() < EXTRA_LIFE_SCORE)
+			return true;
+		return false;
 	}
 	
 	/*
-	 * Assign the ghost to one of the 4 options
-	 * 1. Head to the PacMan
-	 * 2. Head to the PacMan but arrive in a different direction
-	 * 3. Head to Power pill nearest to PacMan (if non - head to pill nearest to PacMan)
-	 * 4. Head to the pill nearest the PacMan
+	 * Using a breadth first search we spread out from the edge of our reachable area for each ghost and the pacman
+	 * At each node we record the distance travelled and the arrival direction
 	 */
-	private MOVE getDir(GHOST ghost) {
-		int nearestPowerPill = game.getClosestNodeIndexFromNodeIndex(game.getPacmanCurrentNodeIndex(), game.getActivePowerPillsIndices(), DM.PATH);		
-		int nearestPill = game.getClosestNodeIndexFromNodeIndex(game.getPacmanCurrentNodeIndex(), game.getActivePillsIndices(), DM.PATH);
-		if (nearestPowerPill == -1)
-			nearestPowerPill = nearestPill;
-		
-		int[] nodes = { game.getPacmanCurrentNodeIndex(), game.getPacmanCurrentNodeIndex(), nearestPowerPill, nearestPill };
-		MOVE[] banned = new MOVE[NUM_GHOSTS]; //The banned arrival direction for each option
-		int[] choices = new int[NUM_GHOSTS]; //For each ghost - which option we head to
-		
-		for (int g=0;g<NUM_GHOSTS;g++) {
-			banned[g] = MOVE.NEUTRAL;
-			choices[g] = -1;
-		}
-					
-		//Assign the nearest ghost to chase the PacMan
-		for (int o=0; o<NUM_GHOSTS; o++) {
-			GHOST best = null; //The best ghost to fulfil this option
-			int nearest = Integer.MAX_VALUE;
-			for (GHOST g: GHOST.values()) {				
-				if (choices[g.ordinal()] == -1) {
-					int distance;
-					if (game.getGhostLairTime(g) > 0)
-						distance = game.getGhostLairTime(g) + maze.getDistance(game.getGhostInitialNodeIndex(), nodes[o], MOVE.NEUTRAL, MOVE.NEUTRAL, banned[o]);
-					else {
-						distance = maze.getDistance(game.getGhostCurrentNodeIndex(g), nodes[o], game.getGhostLastMoveMade(g), MOVE.NEUTRAL, MOVE.NEUTRAL);
-						if (game.getGhostEdibleTime(g) > distance - EAT_DISTANCE) //Would be edible on arrival
-							distance = Integer.MAX_VALUE;
-						else
-							distance += game.getGhostEdibleTime(g) / 2;
-					}
-					if (distance < nearest) {
-						best = g;
-						nearest = distance;
-					}
-				}
-			}
-			if (best != null) {
-				choices[best.ordinal()] = o;
-				if (o+1 < NUM_GHOSTS && nodes[o] == nodes[o+1]) { //The ghost cannot arrive in the same direction as the previous one
-					if (game.getGhostLairTime(best) > 0)
-						banned[o+1] = maze.getArrivalDir(game.getGhostInitialNodeIndex(), nodes[o], MOVE.NEUTRAL, MOVE.NEUTRAL, MOVE.NEUTRAL);
-					else
-						banned[o+1] = maze.getArrivalDir(game.getGhostCurrentNodeIndex(best), nodes[o], game.getGhostLastMoveMade(best), MOVE.NEUTRAL, MOVE.NEUTRAL);
-				}
+	private void walkMaze() {
+		class ghostMove {
+			int node;
+			MOVE move;
+			GHOST ghost;
+			
+			public ghostMove(int n, MOVE m, GHOST g) {
+				node = n;
+				move = m;
+				ghost = g;
 			}
 		}
+		ArrayList<Integer>	pacman = new ArrayList<Integer>();
+		ArrayList<ghostMove>	ghosts = new ArrayList<ghostMove>();
+		nodes = new nodeInfo[game.getNumberOfNodes()];
+		for (int i=0; i< nodes.length; i++)
+			nodes[i] = new nodeInfo();
+		safe = new boolean[game.getNumberOfNodes()];
+		safeScore = 0;
+		/*
+		 * Populate starting edges
+		 * To take account of the EAT_DISTANCE we don't move the pacman until the ghosts have had EAT_DISTANCE (2) extra moves
+		 */
+		pacman.add(game.getPacmanCurrentNodeIndex());
+		for (GHOST g: GHOST.values())
+			if (game.getGhostLairTime(g) == 0)
+				ghosts.add(new ghostMove(game.getGhostCurrentNodeIndex(g), game.getGhostLastMoveMade(g), g));
 		
-		if (choices[ghost.ordinal()] == -1)
-			return getFrightenedDir(ghost);
-		//System.out.printf("Ghost %d - option %d\n", ghost, choices[ghost]);
-		return maze.getStartDir(game.getGhostCurrentNodeIndex(ghost), nodes[choices[ghost.ordinal()]], game.getGhostLastMoveMade(ghost), MOVE.NEUTRAL, banned[choices[ghost.ordinal()]]);
+		int distance = 0;
+		while (pacman.size() > 0) { //Keep walking while we have somewhere to go
+			//Record distance travelled to all edge nodes
+			for (int n: pacman) {
+				safe[n] = true;
+				nodes[n].pacman = distance;
+				safeScore++;
+			}
+				
+			for (ghostMove gi: ghosts)
+				nodes[gi.node].ghosts.put(gi.move, new travel(gi.ghost, distance));					
+				
+			/*
+			 * New edge is 1 move from each point on the current edge
+			 * Pacman will not move onto power pills, hunting ghosts or on a node we have already been to
+			 * Ghosts will not move onto a node another ghost has already been to (in the same direction as us)
+			 */
+			ArrayList<Integer>	nextPacman = new ArrayList<Integer>();
+			ArrayList<ghostMove>	nextGhosts = new ArrayList<ghostMove>();
+			
+			for (ghostMove gi: ghosts) {
+				int edibleTime = game.getGhostEdibleTime(gi.ghost) - distance;
+				if (edibleTime <= 0 || edibleTime%GHOST_SPEED_REDUCTION == 0)
+					for (MOVE gm: game.getPossibleMoves(gi.node, gi.move)) {
+						int node = game.getNeighbour(gi.node, gm);
+						if (!nodes[node].ghosts.containsKey(gm) && nodes[node].pacman == Integer.MAX_VALUE)
+							nextGhosts.add(new ghostMove(node, gm, gi.ghost));
+					}
+				else //edible ghost doesn't move - add in the current location
+					nextGhosts.add(gi);
+			}
+			
+			if (distance >= EAT_DISTANCE)
+				for (int n: pacman)
+					for (MOVE d: game.getPossibleMoves(n)) {
+						int node = game.getNeighbour(n, d);
+						if (!isPowerPill(n) && nodes[node].pacman == Integer.MAX_VALUE) {
+							//Ensure there isn't a hunting ghost coming the other way
+							int hunters = 0;
+							for (MOVE gm: nodes[node].ghosts.keySet())							
+								if (gm != d && game.getGhostEdibleTime(nodes[node].ghosts.get(gm).ghost) < distance)
+									hunters++;
+							if (hunters == 0)
+								nextPacman.add(node);
+						}
+					}
+			else
+				nextPacman = pacman;
+			
+			pacman = nextPacman;
+			ghosts = nextGhosts;
+			distance++;
+			/*
+			 * Add in a new entry if a ghost is due to leave the lair
+			 */
+			for (GHOST g: GHOST.values())
+				if (game.getGhostLairTime(g) == distance)
+					ghosts.add(new ghostMove(game.getGhostInitialNodeIndex(), game.getGhostLastMoveMade(g), g));
+		}	
+	}
+	
+	private int ghostDistance(GHOST me, int node) {		
+		int dist = Integer.MAX_VALUE;
+		for (MOVE m: nodes[node].ghosts.keySet())
+			if (me == nodes[node].ghosts.get(m).ghost && nodes[node].ghosts.get(m).distance < dist)
+				dist = nodes[node].ghosts.get(m).distance;
+		return dist;
+	}
+	
+	/*
+	 * Returns a number (smaller is better) to indicate how safe ghosts are.
+	 * Edible ghosts score points if in the safe zone (they need to move to the unsafe zone)
+	 */
+	private int scoreEdible() {
+		int score = 0;
+		for (GHOST g: GHOST.values()) {
+			if (game.getGhostEdibleTime(g) > 0 && safe[game.getGhostCurrentNodeIndex(g)]) {
+				int nearest = Integer.MAX_VALUE;
+				for (int node=0; node<safe.length; node++)
+					if (!safe[node] && ghostDistance(g, node) < nearest)
+						nearest = ghostDistance(g, node);
+				if (nearest != Integer.MAX_VALUE)
+					score += nearest;
+			}
+		}
+		
+		/*
+		 * Add in score for power pills
+		 */
+		for (int pp: game.getActivePowerPillsIndices())
+			if (safe[pp])
+				score += POWER_PILL;
+		
+		return score;
+	}
+	
+	private boolean isPowerPill(int node) {
+		for (int pp: game.getActivePowerPillsIndices())
+			if (pp == node)
+				return true;
+		return false;
 	}
 }
