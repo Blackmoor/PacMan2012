@@ -22,37 +22,6 @@ public final class Maze
 	public int initialPacManNodeIndex,lairNodeIndex,initialGhostNodeIndex;				//Maze-specific information
 	public Node[] graph;																//The actual maze, stored as a graph (set of nodes)
 	public String name;																	//Name of the Maze
-		
-	public static void main(String[] args) {
-		for(int i=0;i<4;i++){
-		Maze m=new Maze(i);
-		m.printAllNodes();}
-	}
-	
-	public void printAllNodes()
-	{
-		String all="";
-		
-		all+="var mazes = [{powerPillNodes:[";
-		for(int i=0;i<powerPillIndices.length;i++)
-			all+="["+graph[powerPillIndices[i]].x+","+graph[powerPillIndices[i]].y+"],";
-		
-		all+="],pillNodes:[";
-		
-		for(int i=0;i<pillIndices.length;i++)
-			all+="["+graph[pillIndices[i]].x+","+graph[pillIndices[i]].y+"],";
-		
-		all+="],nodes:[";
-		
-		for(int i=0;i<graph.length;i++)
-//			if(graph[i].pillIndex==-1 && graph[i].powerPillIndex==-1)
-				all+="["+graph[i].x+","+graph[i].y+"],";
-		
-		all+="]}]";
-		
-		System.out.println(all);
-	}
-	
 	
 	/*
 	 * Each maze is stored as a (connected) graph: all nodes have neighbours, stored in an array of length 4. The

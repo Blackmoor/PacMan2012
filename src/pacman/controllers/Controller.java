@@ -93,10 +93,10 @@ public abstract class Controller<T> implements Runnable
 				}
 
 				wasSignalled=false;
+				
+				lastMove=getMove(game,timeDue);
+				hasComputed=true;
 			}
-
-			lastMove=getMove(game,timeDue);
-			hasComputed=true;
 		}
 	}
 	

@@ -286,7 +286,6 @@ public final class Game
 		_updateGhosts(ghostMoves);//,globalReverse);	//move ghosts		
 	}
 	
-	
 	/**
 	 * Updates the game once the individual characters have been updated: check if anyone
 	 * can eat anyone else. Then update the lair times and check if Ms Pac-Man should be
@@ -346,7 +345,7 @@ public final class Game
 		}
 	}
 
-	private void _updateGhosts(EnumMap<GHOST,MOVE> moves)//,boolean globalReverse)
+	private void _updateGhosts(EnumMap<GHOST,MOVE> moves)
 	{
 		if(moves==null)
 		{
@@ -367,7 +366,7 @@ public final class Game
 
 			if(ghost.lairTime==0)
 			{
-				//check for neutral is required in case ghost just left the lair
+				//check for neutral in case ghost just left the lair
 				if(globalReverse && ghost.lastMoveMade!=MOVE.NEUTRAL)
 				{
 					ghost.lastMoveMade=ghost.lastMoveMade.opposite();
@@ -379,7 +378,7 @@ public final class Game
 					ghost.currentNodeIndex=currentMaze.graph[ghost.currentNodeIndex].neighbourhood.get(ghost.lastMoveMade);
 				}
 			}
-		}		
+		}
 	}
 	
 	private MOVE _checkGhostDir(Ghost ghost,MOVE direction)
@@ -395,7 +394,10 @@ public final class Game
 			if(node.neighbourhood.containsKey(ghost.lastMoveMade))
 				return ghost.lastMoveMade;
 			else
-				return node.allPossibleMoves.get(ghost.lastMoveMade)[rnd.nextInt(node.numNeighbouringNodes-1)];
+			{
+				MOVE[] moves=node.allPossibleMoves.get(ghost.lastMoveMade);
+				return moves[rnd.nextInt(moves.length)];				
+			}
 		}
 	}
 			
@@ -674,7 +676,7 @@ public final class Game
 	/**
 	 * Lives that remain for Ms Pac-Man
 	 *
-	 * @return the pacman number of lives remaining
+	 * @return the number of lives remaining
 	 */
 	public int getPacmanNumberOfLivesRemaining()
 	{
@@ -850,12 +852,13 @@ public final class Game
 	 */
 	public boolean doesGhostRequireAction(GHOST ghostType)
 	{
-		return (isJunction(ghosts.get(ghostType).currentNodeIndex) 
+		//inlcude neutral here for the unique case where the ghost just left the lair
+		return ((isJunction(ghosts.get(ghostType).currentNodeIndex) || (ghosts.get(ghostType).lastMoveMade==MOVE.NEUTRAL) && ghosts.get(ghostType).currentNodeIndex==currentMaze.initialGhostNodeIndex) 
 				&& (ghosts.get(ghostType).edibleTime==0 || ghosts.get(ghostType).edibleTime%GHOST_SPEED_REDUCTION!=0));
 	}
 	
 	/**
-	 * Checks if is junction.
+	 * Checks if the node specified by the nodeIndex is a junction.
 	 *
 	 * @param nodeIndex the node index
 	 * @return true, if is junction
@@ -911,6 +914,19 @@ public final class Game
 	{
 		return currentMaze.graph[nodeIndex].allNeighbouringNodes.get(lastModeMade);
 	}
+	
+   /**
+    * Given a node index and a move to be made, it returns the node index the move takes one to.
+    * If there is no neighbour in that direction, the method returns -1.
+    * 
+    * @param nodeIndex The current node index
+	* @param lastModeMade The move to be made
+	* @return The node index of the node the move takes one to
+    */
+    public int getNeighbour(int nodeIndex, MOVE moveToBeMade)
+    {
+    	return currentMaze.graph[nodeIndex].neighbourhood.get(moveToBeMade);
+    }
 	
 	/////////////////////////////////////////////////////////////////////////////
 	///////////////////  Helper Methods (computational)  ////////////////////////
@@ -1160,21 +1176,6 @@ public final class Game
 	public int[] getAStarPath(int fromNodeIndex,int toNodeIndex,MOVE lastMoveMade)
 	{
 		int[] path=currentMaze.astar.computePathsAStar(fromNodeIndex,toNodeIndex,lastMoveMade,this);
-		currentMaze.astar.resetGraph();
-		
-		return path;
-	}
-	
-	/**
-	 * Gets the A* path (including possible reversal from the current position).
-	 *
-	 * @param fromNodeIndex The node index from which to move (i.e., current position)
-	 * @param toNodeIndex The target node index
-	 * @return The A* path
-	 */
-	public int[] getAStarPath(int fromNodeIndex,int toNodeIndex)
-	{
-		int[] path=currentMaze.astar.computePathsAStar(fromNodeIndex,toNodeIndex,this);
 		currentMaze.astar.resetGraph();
 		
 		return path;

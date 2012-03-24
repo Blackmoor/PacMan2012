@@ -24,7 +24,8 @@ public final class RandomGhosts extends Controller<EnumMap<GHOST,MOVE>>
 		moves.clear();
 		
 		for(GHOST ghostType : GHOST.values())
-			moves.put(ghostType,allMoves[rnd.nextInt(allMoves.length)]);
+			if(game.doesGhostRequireAction(ghostType))
+				moves.put(ghostType,allMoves[rnd.nextInt(allMoves.length)]);
 		
 		return moves;
 	}
