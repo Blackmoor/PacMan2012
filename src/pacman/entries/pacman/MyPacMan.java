@@ -47,7 +47,7 @@ public class MyPacMan extends Controller<MOVE>
 	private Game 			game;
 	private pacmanInfo[]	pacman;	//Distance of pacman from each node - updated each game tick
 	private ghostInfo[][]	ghosts; //Distance of each ghost from each node - updated each game tick
-	private float[] 		block; //The combined odds for any ghost to block each node
+	private float[] 		block; //The combined odds for the ghosts to block each node
 	private float[]			scores; //The score for each node
 	private int[]			bestPath; //The nodes that make up the best path for the pacman to take
 	private float			bestScore; //The total score of all nodes on the best path
@@ -63,10 +63,10 @@ public class MyPacMan extends Controller<MOVE>
 	public MOVE getMove(Game game,long timeDue)
 	{		
 		this.game = game;
-		int best = bestNode();
-		MOVE dir = bestDir(best);
-		
-		return dir;
+        int best = bestNode();
+        MOVE dir = bestDir(best);
+        
+        return dir;
 	}
 	
 	private int ghostIndex(GHOST g)
@@ -93,7 +93,7 @@ public class MyPacMan extends Controller<MOVE>
 			for (GHOST g: GHOST.values())
 				if (ghosts[ghostIndex(g)][node].hunter)
 					chance *= (1f-1f/(1+ghosts[ghostIndex(g)][node].turns));
-			block[node] = 1f - chance;
+			block[node] = 1f-chance;
 			if (game.getNeighbouringNodes(node).length > 0) {
 				GHOST nearestHunter = nearestBlocker(node);
 				if (nearestHunter == null || ghosts[ghostIndex(nearestHunter)][node].distance - pacman[node].distance > EAT_DISTANCE) { //Safe
@@ -104,7 +104,7 @@ public class MyPacMan extends Controller<MOVE>
 				}
 			}
 		}
-		return result / game.getNumberOfNodes() * 100;
+		return (100*result) / game.getNumberOfNodes();
 	}
 	
 	private int scoreEscapeRoutes() {
@@ -148,7 +148,7 @@ public class MyPacMan extends Controller<MOVE>
 	private void scorePills(boolean safe) {
 		for (int p: game.getActivePillsIndices())
 			if (scores[p] >= 0)
-				scores[p] += PILL*weighting(p);
+				scores[p] += PILL;
 		
 		/*
 		 * Score the best power pill - we want to wait near to these until we have to eat it
@@ -160,34 +160,32 @@ public class MyPacMan extends Controller<MOVE>
 		boolean preferred = false; //set to true if we are only comparing power pills we want to eat
 		for (int p: game.getActivePowerPillsIndices()) {
 			boolean eat = eatMe(p); //Do we want to eat this power pill
-			if (scores[p] >= 0 && ((eat && !preferred) || (eat || !preferred) && pacman[p].distance < dist)) {
+			if (scores[p] >= 0 && ((eat && !preferred) || ((eat || !preferred) && pacman[p].distance < dist))) {
 				if (eat)
 					preferred = true;
 				pp = p;
 				dist = pacman[p].distance;
 			}
 		}
-		if (pp != -1) { //This is the nearest power accessible power pill
-			boolean eat = eatMe(pp);
+		if (pp != -1) { //This is the nearest accessible power pill
 			//If we don't want to eat the power pill yet we hover near by
 			//This is achieved by not scoring the pp when we are 1 node away if we are safe
-			boolean scoreIt = (!safe || eat);
+			boolean scoreIt = preferred;
 			if (!scoreIt) {
 				if (pacman[pp].distance - EAT_DISTANCE > 1)
 					scoreIt = true;
 				else {
 					GHOST g = nearestBlocker(pp);
-					if (g != null && pacman[game.getGhostCurrentNodeIndex(g)].distance <= 4)
+					if (g != null && pacman[game.getGhostCurrentNodeIndex(g)].distance <= 5)
 						scoreIt = true;
 				}
 			}
 			if (scoreIt) {
-				if (safe)
-					scores[pp] += POWER_PILL*weighting(pp);
-				else
-					scores[pp] += 2*ESCAPE*weighting(pp);
-				if (eat)
-					scores[pp] += 350;	//This make it more valuable than a single ghost but not more than the second ghost
+				scores[pp] += POWER_PILL;
+				if (!safe)
+					scores[pp] += ESCAPE*weighting(pp);
+				if (preferred)
+					scores[pp] += 250;
 			}
 		}
 	}
@@ -224,7 +222,7 @@ public class MyPacMan extends Controller<MOVE>
 			}
 		}
 		if (ng != -1) //Add bonus points for nearest ghost
-			scores[ng] += game.getGhostCurrentEdibleScore();
+			scores[ng] += Math.max(400,game.getGhostCurrentEdibleScore());
 	}
 	
 	/*
@@ -260,7 +258,7 @@ public class MyPacMan extends Controller<MOVE>
 		
 		while (!game.isJunction(node) && turns-- > 0) {
 			dir = game.getPossibleMoves(node, dir)[0];
-			node = getNeighbour(node, dir);
+			node = game.getNeighbour(node, dir);
 		}
 		
 		return node;
@@ -327,7 +325,7 @@ public class MyPacMan extends Controller<MOVE>
 		int edibleTime = (int)(EDIBLE_TIME*(Math.pow(EDIBLE_TIME_REDUCTION,game.getCurrentLevel())));
 		int timeRemaining = LEVEL_LIMIT - game.getCurrentLevelTime();
 		int powerPillsRemaining = game.getActivePowerPillsIndices().length;
-		int timeToEat = pacman[node].distance + 50 + edibleTime*powerPillsRemaining + (powerPillsRemaining-1)*120;
+		int timeToEat = pacman[node].distance + (edibleTime+120)*powerPillsRemaining;
 		if (timeRemaining < timeToEat)
 			return true;
 		
@@ -367,9 +365,14 @@ public class MyPacMan extends Controller<MOVE>
 		
 		int maxPowerPills = game.getPowerPillIndices().length;
 		int pillsToEat = maxPowerPills*game.getCurrentLevelTime()/LEVEL_LIMIT;
-		if (count >= NUM_GHOSTS -1 && pillsToEat > maxPowerPills - powerPillsRemaining)
+		int num_ghosts = NUM_GHOSTS; //How many ghosts we want to catch on this level. At the start there is time to get all 4
+		if (game.getCurrentLevel() >= 8)
+			num_ghosts--;
+		if (game.getCurrentLevel() >= 12)
+			num_ghosts--;
+		if (count >= num_ghosts -1 && pillsToEat > maxPowerPills - powerPillsRemaining)
 			return true;
-		if (count == NUM_GHOSTS && pillsToEat >= maxPowerPills - powerPillsRemaining)
+		if (count >= num_ghosts && pillsToEat >= maxPowerPills - powerPillsRemaining)
 			return true;
 		return false;
 	}
@@ -417,21 +420,7 @@ public class MyPacMan extends Controller<MOVE>
 		return best;
 	}
 	
-	/*
-	 * Given a node, return the node in the given direction or -1 if not a valid move
-	 */
-	private int getNeighbour(int node, MOVE d)
-	{
-		MOVE[]	m = game.getPossibleMoves(node);
-		int[]	n = game.getNeighbouringNodes(node);
-		for (int i=0; i<m.length; i++) {
-			if (m[i] == d)
-				return n[i];
-		}
-		return -1;
-	}
-	
-	private void travel(int[] travelled, float [] scores, float [] pathScores, MOVE dir, int to, int node, int dist, float score, ArrayList<Integer> path) {
+	private void travel(int[] travelled, float [] pathScores, MOVE dir, int to, int node, int dist, float score, ArrayList<Integer> path) {
 		if (scores[node] >= 0 && dist < CUTOFF && (pathScores[node] == 0 || dist < travelled[node] || (dist == travelled[node] && score > pathScores[node]))) {
 			travelled[node] = dist;
 			pathScores[node] = score;
@@ -439,9 +428,9 @@ public class MyPacMan extends Controller<MOVE>
 			path.add(ix, node);
 			if (node != to) {
 				for (MOVE m: game.getPossibleMoves(node)) {
-					int next = getNeighbour(node, m);
-					if (next != -1 && scores[next] >= 0)
-						travel(travelled, scores, pathScores, (dir == MOVE.NEUTRAL)?m:dir, to, next, dist+1, score+scores[next], path);
+					int next = game.getNeighbour(node, m);
+					if (next != -1 && scores[next] >= 0 && (next == to || !isPowerPill(next)))
+						travel(travelled, pathScores, (dir == MOVE.NEUTRAL)?m:dir, to, next, dist+1, score+scores[next], path);
 				}
 			} else if (bestPath == null || path.size() < bestPath.length ||
 					(path.size() == bestPath.length && (score > bestScore || (score == bestScore && rnd.nextInt(2) == 0)))) {
@@ -468,17 +457,21 @@ public class MyPacMan extends Controller<MOVE>
 		float[] pathScore = new float[game.getNumberOfNodes()]; //Total score of all nodes on path
 		bestPath = null;
 		bestScore = 0;
-		travel(travelled, scores, pathScore, MOVE.NEUTRAL, to, game.getPacmanCurrentNodeIndex(), 0, scores[game.getPacmanCurrentNodeIndex()], new ArrayList<Integer>());
+		travel(travelled, pathScore, MOVE.NEUTRAL, to, game.getPacmanCurrentNodeIndex(), 0, scores[game.getPacmanCurrentNodeIndex()], new ArrayList<Integer>());
 		if (bestPath != null && bestPath.length > 1) {
 			for (int i=1; i<bestPath.length; i++)
 			if (PATH_DEBUG && game.getNodeXCood(bestPath[i]) != 0 && game.getNodeXCood(bestPath[i-1]) != 0)
 				GameView.addLines(game, Color.YELLOW, bestPath[i], bestPath[i-1]);
 
 			for (MOVE d: game.getPossibleMoves(bestPath[0]))
-				if (getNeighbour(bestPath[0], d) == bestPath[1])
+				if (game.getNeighbour(bestPath[0], d) == bestPath[1])
 					return d;
 		}
-		
+		/*
+		System.out.printf("Failed to find best route to node %d (%d, %d) from node %d (%d, %d)\n", to, game.getNodeXCood(to), game.getNodeYCood(to),
+				game.getPacmanCurrentNodeIndex(),
+				game.getNodeXCood(game.getPacmanCurrentNodeIndex()), game.getNodeYCood(game.getPacmanCurrentNodeIndex()));
+		*/
 		return MOVE.NEUTRAL;
 	}
 	
