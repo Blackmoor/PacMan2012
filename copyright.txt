@@ -1,0 +1,13 @@
+You may use this code for any non-commercial purposes. This copyright file must always
+be included with the code. Feel free to modify the code but deviations from the original 
+should be clearly documented. We welcome any comments and suggestions regarding the code.
+
+This code is an implementation of "Ms Pac-Man" for the "Ms Pac-Man versus Ghosts Competition".
+This competition is organised by Philipp Rohlfshagen, David Robles and Simon Lucas of the University 
+of Essex.
+
+The code is written by Philipp Rohlfshagen based on earlier implementations of the game by Simon Lucas 
+and David Robles. 
+
+Competition website: www.pacman-vs-ghosts.net
+Competition organisers: Philipp Rohlfshagen, David Robles and Simon Lucas (University of Essex)
