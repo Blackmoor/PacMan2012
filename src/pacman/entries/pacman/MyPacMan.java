@@ -203,19 +203,16 @@ public class MyPacMan extends Controller<MOVE>
 				int chase; //Distance travelled to catch ghost
 				int target;
 				if (pacman[jn].distance <= ghosts[ghostIndex(g)][jn].distance) { //We are closer to the junction so we will catch it on the current path
-					//Work out if it is quicker to chase the ghost or intercept it
-					if (pacman[game.getGhostCurrentNodeIndex(g)].dir == game.getGhostLastMoveMade(g)) { //Chase distance is twice current distance
-						target = getGhostNode(g, pacman[game.getGhostCurrentNodeIndex(g)].distance);
-						chase = 2*pacman[target].distance;
-					} else { //Intercept distance is 2/3 current distance
-						target = getGhostNode(g, pacman[game.getGhostCurrentNodeIndex(g)].distance/3);
-						chase = 2*pacman[target].distance/3;
-					}
+					if (pacman[game.getGhostCurrentNodeIndex(g)].dir == game.getGhostLastMoveMade(g)) //Chase it
+						target = getGhostNode(g, pacman[game.getGhostCurrentNodeIndex(g)].distance - EAT_DISTANCE);
+					else //Intercept it
+						target = getGhostNode(g, (pacman[game.getGhostCurrentNodeIndex(g)].distance-EAT_DISTANCE)/3);
+					chase = pacman[target].distance;
 				} else { //We head to junction then chase it
 					target = jn;
-					chase = 2*pacman[target].distance-ghosts[ghostIndex(g)][target].distance; //DT - bug fix, was 3*
+					chase = 2*pacman[target].distance-ghosts[ghostIndex(g)][target].distance - EAT_DISTANCE;
 				}
-				if (scores[target] >= 0 && game.getGhostEdibleTime(g) - chase > EAT_DISTANCE && chase < nd) {
+				if (scores[target] >= 0 && game.getGhostEdibleTime(g) >= chase  && chase < nd) {
 					nd = chase;
 					ng = target;
 				}
