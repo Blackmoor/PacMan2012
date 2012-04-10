@@ -74,15 +74,15 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 							/*
 							 * Pick the largest score the pacman can get
 							 */
-							double highest = 0;
+							double highest = -10000;
 							for (MOVE pacman: game.getPossibleMoves(game.getPacmanCurrentNodeIndex())) {
-								this.game = game.copy();
-								this.game.advanceGame(pacman, testMoves);
 								
-								double score = -10000000;
+								this.game = safeAdvance(game.copy(), pacman, testMoves);		
+								
+								double score = -10000;
 								if (!wasEaten(game, this.game)) {
 									walkMaze();
-									score = 10000*safeScore + scoreEdible() + scorePowerPills() + rnd.nextDouble();
+									score = 100*safeScore + scorePositions() + rnd.nextDouble();
 								}							
 								if (score > highest)
 									highest = score;
@@ -111,7 +111,42 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 		}
 		*/
 		
+		if (System.currentTimeMillis() > timeDue)
+			System.out.printf("Game tick %d - timed out\n", game.getTotalTime());
 		return myMoves;
+	}
+	
+	/*
+	 * Advance the game state with the given set of moves
+	 * Check for global reverses and try again if one occurs
+	 */
+	private Game safeAdvance(Game game, MOVE pacman, EnumMap<GHOST,MOVE> testMoves) {
+		Game result = null;
+		boolean reversed = true;
+		/*
+		 * Apply the moves. If we get a random game reverse, try again.
+		 * If a ghost's last move is the opposite of what we expect and we haven't just eaten a power pill
+		 * then a reverse has happened. Ghosts in the lair don't move so we can't check them.
+		 */
+		GHOST toCheck = null;
+		for (GHOST g: GHOST.values())
+			if (game.getGhostLairTime(g) == 0 && game.getGhostLastMoveMade(g) != MOVE.NEUTRAL) {
+				toCheck = g;
+				break;
+			}
+		
+		while (reversed) {
+			reversed = false;
+			result = game.copy();
+			result.advanceGame(pacman, testMoves);			
+			if (!result.gameOver() && toCheck != null &&
+					result.getGhostLastMoveMade(toCheck) == game.getGhostLastMoveMade(toCheck).opposite() &&
+					result.getCurrentLevel() == game.getCurrentLevel() &&
+					result.getNumberOfActivePowerPills() == game.getNumberOfActivePowerPills())
+				reversed = true;
+		}	
+		
+		return result;
 	}
 	
 	/*
@@ -176,7 +211,7 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 				ghostsEdge.add(new ghostMove(game.getGhostCurrentNodeIndex(g), game.getGhostLastMoveMade(g), g));
 		
 		int distance = 0;
-		while (ghostsEdge.size() == 0) { //The the ghosts must be in the lair
+		while (ghostsEdge.size() == 0) { //All the ghosts must be in the lair
 			distance++;
 			for (GHOST g: GHOST.values())
 				if (game.getGhostLairTime(g) == distance)
@@ -192,7 +227,7 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 			 * New edge is 1 move from each point on the current edge
 			 * Ghosts will not move onto a node another ghost has already been to (in the same direction as us)
 			 */
-			ArrayList<ghostMove>	nextGhosts = new ArrayList<ghostMove>();			
+			ArrayList<ghostMove>	nextGhosts = new ArrayList<ghostMove>();
 			for (ghostMove gi: ghostsEdge) {
 				int edibleTime = game.getGhostEdibleTime(gi.ghost) - distance;
 				if (edibleTime <= 0 || edibleTime%GHOST_SPEED_REDUCTION != 0) {
@@ -252,22 +287,16 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 		}	
 	}
 	
-	private int ghostDistance(GHOST me, int node) {		
-		int dist = Integer.MAX_VALUE;
-		for (MOVE m: nodes[node].ghosts.keySet())
-			if (me == nodes[node].ghosts.get(m).ghost && nodes[node].ghosts.get(m).distance < dist)
-				dist = nodes[node].ghosts.get(m).distance;
-		return dist;
-	}
-	
-	private GHOST nearestGhost(int node, MOVE banned) {		
+	private GHOST nearestHunter(int node, MOVE banned) {		
 		int dist = Integer.MAX_VALUE;
 		GHOST result = null;
-		for (MOVE m: nodes[node].ghosts.keySet())
-			if (m != banned && nodes[node].ghosts.get(m).distance < dist) {
-				dist = nodes[node].ghosts.get(m).distance;
+		for (MOVE m: nodes[node].ghosts.keySet()) {
+			int gd = nodes[node].ghosts.get(m).distance;
+			if (m != banned && gd < dist && game.getGhostEdibleTime(nodes[node].ghosts.get(m).ghost) < gd) {
+				dist = gd;
 				result = nodes[node].ghosts.get(m).ghost;
 			}
+		}
 		return result;
 	}
 	
@@ -275,40 +304,32 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 	 * Returns a number (smaller is better) to indicate how safe edible ghosts are.
 	 * Required behaviour
 	 * 1. Move away from pacman (weighting 3)
-	 * 2. Move towards the nearest hunting ghost (weighting 1)
-	 * 3. Move Away from the nearest edible ghost (weighting 2)
+	 * 2. Move Away from the nearest edible ghost (weighting 1)
 	 */
-	private int scoreEdible() {
+	private int scoreEdible(GHOST g) {
 		int score = 0;
-		for (GHOST g: GHOST.values()) {
-			if (game.getGhostEdibleTime(g) > 0) {				
-				//We want to move away from the pacman - subtract the distance since we want a low score
-				score -= 3*game.getDistance(game.getGhostCurrentNodeIndex(g), game.getPacmanCurrentNodeIndex(), DM.PATH);
 				
-				//Towards nearest hunter (if there is one) and away from nearest edible ghost (if there is one)
-				int hunter = Integer.MAX_VALUE;
-				int edible = Integer.MAX_VALUE;
-				for (GHOST h: GHOST.values()) {
-					if (game.getGhostEdibleTime(h) == 0) { ///hunter
-						if (game.getDistance(game.getGhostCurrentNodeIndex(g), game.getGhostCurrentNodeIndex(h), DM.PATH) < hunter)
-							hunter = (int)game.getDistance(game.getGhostCurrentNodeIndex(g), game.getGhostCurrentNodeIndex(h), DM.PATH);
-					} else { //edible
-						if (game.getDistance(game.getGhostCurrentNodeIndex(g), game.getGhostCurrentNodeIndex(h), DM.PATH) < edible)
-							edible = (int)game.getDistance(game.getGhostCurrentNodeIndex(g), game.getGhostCurrentNodeIndex(h), DM.PATH);
-					}
-				}
-				if (hunter != Integer.MAX_VALUE)
-					score += hunter; //Move towards the hunter ghost
-				if (edible != Integer.MAX_VALUE)
-					score -= 2*edible; //Move away from the edible ghost
-				
- 			}
-		}	
+		//We want to move away from the pacman - subtract the distance since we want a low score
+		score -= 3*nodes[game.getGhostCurrentNodeIndex(g)].pacman;
+		
+		//Move away from nearest edible ghost (if there is one)
+		int edible = Integer.MAX_VALUE;
+		for (GHOST h: GHOST.values()) {
+			if (h != g && game.getGhostEdibleTime(h) > 0 && game.getDistance(game.getGhostCurrentNodeIndex(g), game.getGhostCurrentNodeIndex(h), DM.PATH) < edible)
+				edible = (int)game.getDistance(game.getGhostCurrentNodeIndex(g), game.getGhostCurrentNodeIndex(h), DM.PATH);
+		}
+
+		if (edible != Integer.MAX_VALUE)
+			score -= edible; //Move away from the edible ghost
 		
 		return score;
 	}
 	
-	private int scorePowerPills() {
+	/*
+	 * Look at the board positions and return a score - higher is better for the pacman
+	 * The score determines how effective a ghost not involved in blocking the pacman is
+	 */
+	private int scorePositions() {
 		int score = 0;
 		/*
 		 * Add in score for power pills
@@ -331,7 +352,7 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 					int next = game.getNeighbour(n, m);
 					if (!safe[next] && !isPowerPill(next)) {
 						//Find out which ghost(s) reach this point first (in a direction different to the pacman)
-						GHOST g = nearestGhost(next, m);
+						GHOST g = nearestHunter(next, m);
 						if (g != null)
 							involved[g.ordinal()] = true;
 					}
@@ -341,7 +362,9 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 		
 		for (GHOST g: GHOST.values()) {
 			if (!involved[g.ordinal()]) {
-				if (containsPowerPill) { //Move away from nearest ghost
+				if (game.getGhostEdibleTime(g) > 0 && safe[game.getGhostCurrentNodeIndex(g)]) { //Ghost is edible and in danger
+					score += scoreEdible(g);
+				} else if (containsPowerPill) { //Move away from nearest ghost
 					int nearest = Integer.MAX_VALUE;
 					for (GHOST n: GHOST.values()) {
 						if (g != n && game.getDistance(game.getGhostCurrentNodeIndex(g), game.getGhostCurrentNodeIndex(n), DM.PATH) < nearest)
