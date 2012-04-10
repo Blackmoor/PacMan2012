@@ -77,7 +77,7 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 							double highest = -10000;
 							for (MOVE pacman: game.getPossibleMoves(game.getPacmanCurrentNodeIndex())) {
 								
-								this.game = safeAdvance(game.copy(), pacman, testMoves);		
+								this.game = safeAdvance(game, pacman, testMoves);		
 								
 								double score = -10000;
 								if (!wasEaten(game, this.game)) {
@@ -111,8 +111,6 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 		}
 		*/
 		
-		if (System.currentTimeMillis() > timeDue)
-			System.out.printf("Game tick %d - timed out\n", game.getTotalTime());
 		return myMoves;
 	}
 	
