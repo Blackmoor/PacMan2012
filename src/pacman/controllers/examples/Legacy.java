@@ -27,15 +27,15 @@ public class Legacy extends Controller<EnumMap<GHOST,MOVE>>
 		
 		if(game.doesGhostRequireAction(GHOST.BLINKY))
 			myMoves.put(GHOST.BLINKY,
-					game.getApproximateNextMoveTowardsTarget(game.getGhostCurrentNodeIndex(GHOST.BLINKY),targetNode,game.getGhostLastMoveMade(GHOST.BLINKY),DM.PATH));//
+					game.getApproximateNextMoveTowardsTarget(game.getGhostCurrentNodeIndex(GHOST.BLINKY),targetNode,game.getGhostLastMoveMade(GHOST.BLINKY),DM.PATH));
 		
 		if(game.doesGhostRequireAction(GHOST.INKY))
 			myMoves.put(GHOST.INKY,
-					game.getApproximateNextMoveTowardsTarget(game.getGhostCurrentNodeIndex(GHOST.INKY),targetNode,game.getGhostLastMoveMade(GHOST.INKY),DM.MANHATTAN));//
+					game.getApproximateNextMoveTowardsTarget(game.getGhostCurrentNodeIndex(GHOST.INKY),targetNode,game.getGhostLastMoveMade(GHOST.INKY),DM.MANHATTAN));
 		
 		if(game.doesGhostRequireAction(GHOST.PINKY))
 			myMoves.put(GHOST.PINKY,
-					game.getApproximateNextMoveTowardsTarget(game.getGhostCurrentNodeIndex(GHOST.PINKY),targetNode,game.getGhostLastMoveMade(GHOST.PINKY),DM.EUCLID));//
+					game.getApproximateNextMoveTowardsTarget(game.getGhostCurrentNodeIndex(GHOST.PINKY),targetNode,game.getGhostLastMoveMade(GHOST.PINKY),DM.EUCLID));
 		
 		if(game.doesGhostRequireAction(GHOST.SUE))
 			myMoves.put(GHOST.SUE,moves[rnd.nextInt(moves.length)]);

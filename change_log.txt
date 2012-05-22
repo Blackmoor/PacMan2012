@@ -1,5 +1,52 @@
 Change log:
 
+WCCI12_v1.2
+
+- added the class 'IO' to the framework. This class can be used to read and write files in the directory of the controller. Files need to be in the directory 'myData'. For submission, this directory needs to be at the same level as the source files.
+- added the ability to check if a global reversal event took place (getTimeOfLastGlobalReversal(); not including power pill reversals).
+- changed copy() to reflect new class variable.
+- changed getGameState() and setGameState() to reflect new class variable.
+- fixed a bug with the paths cache that would sometime return a path including a reversal
+
+WCCI12_v1.1
+
+- fixed an issue with the threads in Controller to make sure slow controllers do not delay the game.
+- added the following methods to Game:
+	- getDistance(int fromNodeIndex,int toNodeIndex,MOVE lastMoveMade,DM distanceMeasure)
+	- getNextMoveTowardsTarget(int fromNodeIndex,int toNodeIndex,MOVE lastMoveMade, DM distanceMeasure)
+	- getNextMoveAwayFromTarget(int fromNodeIndex,int toNodeIndex,MOVE lastMoveMade, DM distanceMeasure)
+- fixed an error where the distance function would return a wrong value (happened when the target was at a junction).
+
+WCCI12_v1.0
+
+The biggest change in this version is the pre-computing of paths. This makes it faster to obtain paths from a to b for both Pac-Man and ghosts
+controllers.
+
+- added a new class called PathsCache that pre-computed many paths and can construct a path from any node to any other node on the fly.
+- added static instances of PathsCache to Game, one for each maze.
+- added the method getApproximateShortestPathDistance() that returns the exact distance for the ghosts from node a to node b.
+- the method getApproximateShortestPath() now returns the exact (A*) path.
+- the method getAStarPath() is now identical to getApproximateShortestPath(). They are both preserved for compatibility reasons.
+- changed all the methods that return paths for the ghosts - these methods are now exact (even though the name remains with 'approximate' in tact to ensure compatibility.
+- include a new variable, enableGlobalReversals, that can be set via setGlobalReversals(), to disable/enable global reversals. Note: in the actual competition, this will always be enabled and is hence not included in the string representation of the game state.
+- changed copy() to reflect new class variable.
+- fixed some minor issues with the time argument in Executor
+- new constructor to game to specify initial maze, also changed _init() to reflect this.
+- added the method getCurrentMaze() to Game to allow PathsCache access to the current maze.
+- added the method getMoveToMakeToReachDirectNeighbour() to game: returns direction to take given a node and a direct neighbour.
+- tidied up the code a bit.
+- fixed some javadoc errors.
+
+WCCI12_v0.4
+
+- fixed a minor bug in how the total time of the game is advanced (used to increment twice at end of each level).
+- fixed the getNeighbour() method to actually return -1 if no neighbour is found (instead of null).
+- if two ghosts would eat Ms Pac-Man at the same time, she would loose two lives. This is now fixed and the game resets immediately and only one life is lost.
+- fixed the colours of the ghosts (inky and sue).
+- made lastMove in Controller protected (from private). It can now be set directly from the getMove method to save an initial response (and thus to limit the potential damage done by the garbage collection).
+- added a new updateGame method that can be tuned for various tree searches. Should be used with caution.
+- fixed some minor javadoc errors.
+
 WCCI12_v0.3
 
 - added the method getNeighbour(int nodeIndex, MOVE moveToBeMade) that returns the neighbouring node of the current node given a move.

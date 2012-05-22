@@ -46,36 +46,30 @@ public class Executor
 	public static void main(String[] args)
 	{
 		Executor exec=new Executor();
-		int numTrials=5;
-		int delay=20;
+		int numTrials=100;
+		int delay=5;
 		boolean visual=true;
 		boolean fixedTime=false;
-		
-		//run multiple games in batch mode - good for testing.
-		//exec.runExperiment(new MyPacMan(),new MyGhosts(),numTrials);
-		 
-		
-		//run a game in synchronous mode: game waits until controllers respond.
-		//exec.runGame(new MyPacMan(),new StarterGhosts(),visual,delay);	
-		
-		
-		//run the game in asynchronous mode - this is the mode of the competition.
-		//exec.runGameTimed(new MyPacMan(),new StarterGhosts(),visual);
-		//exec.runGameTimed(new HumanController(new KeyBoardInput()),new StarterGhosts(),visual);	
-		 
-		
-		
-		//run the game in asynchronous mode but advance as soon as both controllers are ready.
-		//time limit of DELAY ms still applies.
-		exec.runGameTimedSpeedOptimised(new MyPacMan(),new MyGhosts(),fixedTime,visual);
-		
-		
-		/*
-		//run game in asynchronous mode and record it to file for replay at a later stage.
 		String fileName="replay.txt";
-		exec.runGameTimedRecorded(new MyPacMan(),new MyGhosts(),false,fileName);
-		exec.replayGame(fileName,true);
-		*/
+		
+		//run multiple games in batch mode - good for testing.		
+		//exec.runExperiment(new MyPacMan(),new MyGhosts(),numTrials);				
+		
+		//run a game in synchronous mode: game waits until controllers respond.		
+		exec.runGame(new MyPacMan(),new MyGhosts(),visual,delay); 		
+		
+		//run the game in asynchronous mode.
+		//exec.runGameTimed(new MyPacMan(),new MyGhosts(),visual);
+		//exec.runGameTimed(new StarterPacMan(),new StarterGhosts(),visual);
+		//exec.runGameTimed(new HumanController(new KeyBoardInput()),new StarterGhosts(),visual);			
+		
+		//run the game in asynchronous mode but advance as soon as both controllers are ready  - this is the mode of the competition.
+		//time limit of DELAY ms still applies.
+		//exec.runGameTimedSpeedOptimised(new RandomPacMan(),new RandomGhosts(),fixedTime,visual);		
+		
+		//run game in asynchronous mode and record it to file for replay at a later stage.
+		//exec.runGameTimedRecorded(new HumanController(new KeyBoardInput()),new RandomGhosts(),visual,fileName);
+		//exec.replayGame(fileName,visual);
 	}
 	
     /**
@@ -101,8 +95,8 @@ public class Executor
 			
 			while(!game.gameOver())
 			{
-				long due=System.currentTimeMillis()+DELAY;
-		        game.advanceGame(pacManController.getMove(game.copy(),due),ghostController.getMove(game.copy(),due));
+		        game.advanceGame(pacManController.getMove(game.copy(),System.currentTimeMillis()+DELAY),
+		        		ghostController.getMove(game.copy(),System.currentTimeMillis()+DELAY));
 			}
 			
 			avgScore+=game.getScore();
@@ -133,7 +127,7 @@ public class Executor
 		
 		while(!game.gameOver())
 		{
-	        game.advanceGame(pacManController.getMove(game.copy(),-1),ghostController.getMove(game.copy(),System.currentTimeMillis()+Long.MAX_VALUE));
+	        game.advanceGame(pacManController.getMove(game.copy(),-1),ghostController.getMove(game.copy(),-1));
 	        
 	        try{Thread.sleep(delay);}catch(Exception e){}
 	        
@@ -256,7 +250,7 @@ public class Executor
 	 *
      * @param pacManController The Pac-Man controller
      * @param ghostController The Ghosts controller
-     * @param trials The number of trials to be executed
+     * @param visual Whether to run the game with visuals
 	 * @param fileName The file name of the file that saves the replay
 	 */
 	public void runGameTimedRecorded(Controller<MOVE> pacManController,Controller<EnumMap<GHOST,MOVE>> ghostController,boolean visual,String fileName)

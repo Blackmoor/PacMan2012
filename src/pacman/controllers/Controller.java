@@ -13,9 +13,10 @@ import pacman.game.Game;
 public abstract class Controller<T> implements Runnable
 {
 	private boolean alive,wasSignalled,hasComputed;
+	private volatile boolean threadStillRunning;
 	private long timeDue;
 	private Game game;
-	private T lastMove;
+	protected T lastMove;	//this is now protected. You can set this directly in your getMove() method to save an immediate response.
 
 	/**
 	 * Instantiates a new controller. The constructor initialises the class variables.
@@ -25,6 +26,7 @@ public abstract class Controller<T> implements Runnable
 		alive=true;
 		wasSignalled=false;
 		hasComputed=false;
+		threadStillRunning=false;
 	}
 
 	/**
@@ -91,11 +93,22 @@ public abstract class Controller<T> implements Runnable
 						e.printStackTrace();
 					}
 				}
-
-				wasSignalled=false;
 				
-				lastMove=getMove(game,timeDue);
-				hasComputed=true;
+				if(!threadStillRunning)
+				{
+					new Thread()
+					{
+						public void run()
+						{
+							threadStillRunning=true;
+							lastMove = getMove(game,timeDue);
+							hasComputed=true;
+							threadStillRunning=false;
+						}
+					}.start();
+				}
+				
+				wasSignalled=false;
 			}
 		}
 	}

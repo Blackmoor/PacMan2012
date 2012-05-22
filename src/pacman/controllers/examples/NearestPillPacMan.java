@@ -15,7 +15,7 @@ public class NearestPillPacMan extends Controller<MOVE>
 	 * @see pacman.controllers.Controller#getMove(pacman.game.Game, long)
 	 */
 	public MOVE getMove(Game game,long timeDue)
-	{	
+	{		
 		int currentNodeIndex=game.getPacmanCurrentNodeIndex();
 		
 		//get all active pills
