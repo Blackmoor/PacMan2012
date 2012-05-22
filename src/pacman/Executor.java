@@ -47,7 +47,7 @@ public class Executor
 	{
 		Executor exec=new Executor();
 		int numTrials=100;
-		int delay=5;
+		int delay=20;
 		boolean visual=true;
 		boolean fixedTime=false;
 		String fileName="replay.txt";
