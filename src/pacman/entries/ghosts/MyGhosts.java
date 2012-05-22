@@ -38,11 +38,12 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 	private boolean []		safe;	//The status of each node - safe (for the pacman) = true
 	private int				safeScore; //How many points are available in the safe zone
 	private static final Random			rnd = new Random();
+	private static final int			MAX_DISTANCE = 350;	//The longest path in all mazes.
 	
 	public EnumMap<GHOST,MOVE> getMove(Game game,long timeDue)
 	{
 		EnumMap<GHOST,MOVE> myMoves=new EnumMap<GHOST,MOVE>(GHOST.class);
-		double best = 10000000;
+		double best = Double.MAX_VALUE;
 		MOVE[][] options = new MOVE[NUM_GHOSTS][];
 		MOVE[] nothing = { MOVE.NEUTRAL };
 		
@@ -73,14 +74,14 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 							/*
 							 * Pick the largest score the pacman can get
 							 */
-							double highest = -10000;
+							double highest = -1;
 							for (MOVE pacman: game.getPossibleMoves(game.getPacmanCurrentNodeIndex())) {
 								
 								this.game = safeAdvance(game, pacman, testMoves);		
 								
-								double score = -10000;
+								double score = rnd.nextDouble();
 								if (!wasEaten(game, this.game))
-									score = scorePositions(walkMaze()) + 100*safeScore + rnd.nextDouble();
+									score += scorePositions(walkMaze());
 							
 								if (score > highest)
 									highest = score;
@@ -99,13 +100,11 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 		}
 		
 		/*
-		if (safe != null) {
-			this.game = game;
-			walkMaze();
-			for (int i=0; i<safe.length; i++) {
-				if (safe[i])
-					GameView.addPoints(game, new Color(0, Math.max(0, 255-nodes[i].pacman), 0, 128), i);
-			}
+		this.game = game;
+		walkMaze();
+		for (int i=0; i<safe.length; i++) {
+			if (safe[i])
+				GameView.addPoints(game, new Color(0, Math.max(0, 255-nodes[i].pacman), 0, 128), i);
 		}
 		*/
 		
@@ -187,11 +186,18 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 	/*
 	 * Using a breadth first search we spread out from the edge of our reachable area for each ghost and the pacman
 	 * At each node we record the distance travelled and the arrival direction
+	 * Return an array list (1 for each ghost) containing a list of nodes where the pacman will meet the ghost (the event horizon)
 	 */
-	private ArrayList<Integer> walkMaze() {
-		ArrayList<Integer>	eventHorizon = new ArrayList<Integer>();
+	private ArrayList<ArrayList<Integer>> walkMaze() {
+		ArrayList<ArrayList<Integer>>	eventHorizon = new ArrayList<ArrayList<Integer>>();
 		ArrayList<Integer>	pacmanEdge = new ArrayList<Integer>();
 		ArrayList<ghostMove>	ghostsEdge = new ArrayList<ghostMove>();
+		
+		eventHorizon.add(new ArrayList<Integer>());	//Blinky
+		eventHorizon.add(new ArrayList<Integer>());	//Pinky
+		eventHorizon.add(new ArrayList<Integer>());	//Inky
+		eventHorizon.add(new ArrayList<Integer>());	//Sue
+		
 		nodes = new nodeInfo[game.getNumberOfNodes()];
 		for (int i=0; i< nodes.length; i++)
 			nodes[i] = new nodeInfo();
@@ -271,14 +277,12 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 						int hunters = 0;
 						for (MOVE gm: nodes[node].ghosts.keySet())							
 							if (gm != d && game.getGhostEdibleTime(nodes[node].ghosts.get(gm).ghost) < distance &&
-									nodes[node].ghosts.get(gm).distance - distance <= EAT_DISTANCE)
+									nodes[node].ghosts.get(gm).distance - distance <= EAT_DISTANCE) {
 								hunters++;
-						if (hunters == 0) {
-							if (!nextPacman.contains(node))
-								nextPacman.add(node);
-						} else {
-							eventHorizon.add(node);
-						}
+								eventHorizon.get(nodes[node].ghosts.get(gm).ghost.ordinal()).add(node);
+							}
+						if (hunters == 0 && !nextPacman.contains(node))
+							nextPacman.add(node);
 					}
 				}
 
@@ -289,49 +293,42 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 		return eventHorizon;
 	}
 	
-	private GHOST nearestHunter(int node, MOVE banned) {		
-		int dist = Integer.MAX_VALUE;
-		GHOST result = null;
-		for (MOVE m: nodes[node].ghosts.keySet()) {
-			int gd = nodes[node].ghosts.get(m).distance;
-			if (m != banned && gd < dist && game.getGhostEdibleTime(nodes[node].ghosts.get(m).ghost) < gd) {
-				dist = gd;
-				result = nodes[node].ghosts.get(m).ghost;
-			}
-		}
-		return result;
-	}
-	
 	/*
 	 * Returns a number (smaller is safer/better) to indicate how safe edible ghosts are.
 	 * Required behaviour
 	 * Move away from the nearest edible ghost (weighting 1)
 	 * Move into unsafe zone (weighting 2)
 	 */
-	private int scoreEdible(GHOST g, int[] ev) {
-		int score = 0;		
-		int unsafe = Integer.MAX_VALUE;
-		if (ev.length> 0) {
-			int target = game.getClosestNodeIndexFromNodeIndex(game.getGhostCurrentNodeIndex(g), ev, DM.PATH);
-			unsafe = (int)game.getDistance(game.getGhostCurrentNodeIndex(g), target, DM.PATH);
-		}
-		if (unsafe != Integer.MAX_VALUE) {
+	private int scoreEdible(GHOST g, ArrayList<ArrayList<Integer>> ev) {
+		int score = 0;	
+		MOVE last = game.getGhostLastMoveMade(g);
+		
+		//If the ghost is in the zone the pacman can reach head to the event horizon
+		double nearest = Integer.MAX_VALUE;
+		for (int j = 0; j<ev.size(); j++)
+			for (int i=0; i<ev.get(j).size(); i++) {
+				double dist = game.getDistance(game.getGhostCurrentNodeIndex(g), ev.get(j).get(i), last, DM.PATH);
+				if (dist < nearest)
+					nearest = dist;
+			}
+		if (nearest != Integer.MAX_VALUE) {
 			if (safe[game.getGhostCurrentNodeIndex(g)])
-				score += 2*unsafe;
+				score += 3*(int)nearest;
 			else
-				score -= 2*unsafe;
-		}			
+				score += 2*(MAX_DISTANCE - (int)nearest);
+		} else //If there is no safe node, head away from PacMan
+			score += 2*(MAX_DISTANCE - game.getDistance(game.getGhostCurrentNodeIndex(g), game.getPacmanCurrentNodeIndex(), last, DM.PATH));
 		
 		//Move away from nearest edible ghost (if there is one)
-		int edible = Integer.MAX_VALUE;
+		double edible = Integer.MAX_VALUE;
 		for (GHOST h: GHOST.values())
 			if (h != g && game.getGhostEdibleTime(h) > 0) {
-				int dist = (int)game.getDistance(game.getGhostCurrentNodeIndex(g), game.getGhostCurrentNodeIndex(h), DM.PATH);
+				double dist = game.getDistance(game.getGhostCurrentNodeIndex(g), game.getGhostCurrentNodeIndex(h), last, DM.PATH);
 				if (dist < edible)
 					edible = dist;
 			}
 		if (edible != Integer.MAX_VALUE)
-			score -= edible; //Move away from the edible ghost
+			score += MAX_DISTANCE - (int)edible; //Move away from the edible ghost
 		
 		return score;
 	}
@@ -340,12 +337,8 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 	 * Look at the board positions and return a score - higher is better for the pacman
 	 * The score determines how effective a ghost not involved in blocking the pacman is
 	 */
-	private int scorePositions(ArrayList<Integer> eventHorizon) {
-		int score = 0;
-		int[] ev = new int[eventHorizon.size()];
-		int i = 0;
-		for (int node: eventHorizon)
-			ev[i++] = node;
+	private double scorePositions(ArrayList<ArrayList<Integer>> eventHorizon) {
+		double score = 100*safeScore;
 		
 		/*
 		 * Add in score for power pills
@@ -363,37 +356,15 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 		
 		/*
 		 * Apply a score to ghosts not contributing to the event horizon
-		 * The event horizon is defined as any node in the safe zone with a neighbour not in the safe zone
-		 */
-		boolean involved[] = new boolean[NUM_GHOSTS];	
-		for (int n=0; n<game.getNumberOfNodes(); n++) {
-			if (safe[n]) {
-				for (MOVE m: game.getPossibleMoves(n)) {
-					int next = game.getNeighbour(n, m);
-					if (!safe[next] && !isPowerPill(next)) {
-						//Find out which ghost(s) reach this point first (in a direction different to the pacman)
-						GHOST g = nearestHunter(next, m);
-						if (g != null)
-							involved[g.ordinal()] = true;
-					}
-				}
-			}
-		}
-		
+		 */		
 		for (GHOST g: GHOST.values()) {
-			if (!involved[g.ordinal()]) {
+			if (eventHorizon.get(g.ordinal()).size() == 0 && game.getGhostLairTime(g) <= 0) {
 				if (game.getGhostEdibleTime(g) > 0) { //Ghost is edible and in danger
-					score += scoreEdible(g, ev);
-				} else if (containsPowerPill) { //Move away from nearest ghost
-					int nearest = Integer.MAX_VALUE;
-					for (GHOST n: GHOST.values()) {
-						if (g != n && game.getDistance(game.getGhostCurrentNodeIndex(g), game.getGhostCurrentNodeIndex(n), DM.PATH) < nearest)
-							nearest = (int)game.getDistance(game.getGhostCurrentNodeIndex(g), game.getGhostCurrentNodeIndex(n), DM.PATH);
-					}
-					if (nearest != Integer.MAX_VALUE)
-						score -= nearest;
+					score += scoreEdible(g, eventHorizon) * 100000;
+				} else if (containsPowerPill) { //Move away from the pacman
+					score += MAX_DISTANCE - (int)game.getDistance(game.getGhostCurrentNodeIndex(g), game.getPacmanCurrentNodeIndex(), game.getGhostLastMoveMade(g), DM.PATH);
 				} else { //Move towards the pacman
-					score += game.getDistance(game.getGhostCurrentNodeIndex(g), game.getPacmanCurrentNodeIndex(), DM.PATH);
+					score += (int)game.getDistance(game.getGhostCurrentNodeIndex(g), game.getPacmanCurrentNodeIndex(), game.getGhostLastMoveMade(g), DM.PATH);
 				}
 			}
 		}
