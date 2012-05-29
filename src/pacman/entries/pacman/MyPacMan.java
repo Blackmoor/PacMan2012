@@ -145,9 +145,15 @@ public class MyPacMan extends Controller<MOVE>
 	}
 
 	private void scorePills(boolean safe) {
+		int best = -1;
 		for (int p: game.getActivePillsIndices())
-			if (scores[p] >= 0)
+			if (scores[p] >= 0) {
 				scores[p] += PILL;
+				if (best == -1 || pacman[p].distance < pacman[best].distance)
+					best = p;
+			}
+		if (best != -1)
+			scores[best] += PILL;
 		
 		/*
 		 * Score the best power pill - we want to wait near to these until we have to eat it
