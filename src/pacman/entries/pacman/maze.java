@@ -5,6 +5,7 @@ import static pacman.game.Constants.*;
 import java.util.ArrayList;
 
 import pacman.game.Game;
+import pacman.game.Constants.GHOST;
 
 /*
  * A set of utility functions that provides distance and direction information based on the current game state
@@ -14,7 +15,9 @@ public class maze {
 	private Game 			game;
 	private pacmanInfo[]	pacman;	//Distance of pacman from each node - updated each game tick
 	private ghostInfo[][]	ghosts; //Distance of each ghost from each node - updated each game tick
+	private float[]			block; //The odds of each node being blocked by ghosts
 	private boolean[]		safe; //Set to true if the node can be safely reached by the pacman
+	private boolean[]		accessible; //Set to true if the pacman can reach this node before a ghost can
 	private int				safeNodes; //The number of safe nodes
 	private ArrayList<ArrayList<Integer>>	eventHorizon; //For each ghost, the nodes where it meets the pacman as a hunter
 	
@@ -137,7 +140,9 @@ public class maze {
 		ArrayList<nodeMove>	ghostsEdge = new ArrayList<nodeMove>();
 		pacman = new pacmanInfo[game.getNumberOfNodes()];
 		ghosts = new ghostInfo[NUM_GHOSTS][game.getNumberOfNodes()];
+		accessible = new boolean[game.getNumberOfNodes()];
 		safe = new boolean[game.getNumberOfNodes()];
+		block = new float[game.getNumberOfNodes()];
 		safeNodes = 0;
 		eventHorizon = new ArrayList<ArrayList<Integer>>();
 		
@@ -207,13 +212,24 @@ public class maze {
 					ghostsEdge.add(new nodeMove(game.getGhostInitialNodeIndex(), MOVE.NEUTRAL, g, 0));
 		}	
 		
+		/*
+		 * Store the chance that each node is blocked by combining the odds of each hunting ghost
+		 */
+		for (int node=0; node<block.length; node++) {
+			float chance = 1f;
+			for (GHOST g: GHOST.values())
+				if (ghosts[ghostIndex(g)][node].hunter)
+					chance *= (1f-1f/(1+ghosts[ghostIndex(g)][node].turns));
+			block[node] = 1f-chance;
+		}
+		
 		//Now store the pacman distances - the pacman is blocked by hunting ghosts
 		distance = 0;
 		while (pacmanEdge.size() > 0) {
 			for (nodeMove n: pacmanEdge) {
 				pacman[n.node].distance = distance;
 				pacman[n.node].dir = n.move;
-				safe[n.node]= true; 
+				accessible[n.node]= true; 
 				safeNodes++;
 			}
 			/*
@@ -228,9 +244,12 @@ public class maze {
 						GHOST g = isBlocked(n.node);
 						if (g != null)
 							eventHorizon.get(g.ordinal()).add(n.node);
-						else if (isPowerPill(n.node))
+						else if (isPowerPill(n.node)) {
 							eventHorizon.get(NUM_GHOSTS).add(n.node);
-						else if (!nextPacman.contains(node))
+							safe[n.node] = true;
+							accessible[n.node]= true; 
+							safeNodes++;
+						} else if (!nextPacman.contains(node))
 							nextPacman.add(new nodeMove(node, d));
 					}
 				}
@@ -238,6 +257,63 @@ public class maze {
 			pacmanEdge = nextPacman;
 			distance++;
 		}
+		
+		/*
+		 * Mark all the safe nodes
+		 * A node is safe if it is accessible and not on a part of a blocked path that can become trapped
+		 */
+		for (int node=0; node<block.length; node++)
+			if (accessible[node] && weighting(node) > 0)
+				safe[node] = true;
+		
+		int c = 0;
+		for (ArrayList<Integer> gev: eventHorizon) {
+			if (c < NUM_GHOSTS)
+				for (int node: gev) {
+					int jn = nearestJunction(node);
+					if (jn != -1) {
+						//Find nearest hunting ghost to this jn
+						int best = Integer.MAX_VALUE;
+						int b = -1;
+						for (GHOST g: GHOST.values()) {
+							if (isHunter(g, jn) && ghostDistance(g, jn) < best) {
+								best = ghostDistance(g, jn);
+								b = g.ordinal();
+							}
+						}
+						int safeDistance = (best - pacmanDistance(jn)-1)/2;
+						int[] path = game.getShortestPath(jn, node);
+						if (b == c || safeDistance > path.length - 1)
+							safeDistance = path.length - 1;
+						int i = 1;
+						while (i <= safeDistance) {
+							safe[path[i]] = accessible[path[i]];
+							i++;
+						}
+					}
+				}
+			c++;
+		}
+	}
+	
+	/*
+	 * Find the nearest junction to this node in the accessible zone
+	 */
+	private int nearestJunction(int node) {	
+		int prev = -1;
+		while (!game.isJunction(node)) {
+			boolean trapped = true;
+			for (int next: game.getNeighbouringNodes(node))
+				if (next != prev && accessible[next]) {
+					prev = node;
+					node = next;
+					trapped = false;
+					break;
+				}
+			if (trapped)
+				return -1;
+		}
+		return node;
 	}
 	
 	/*
@@ -362,7 +438,7 @@ public class maze {
 	 * This is an estimate since working out all options is not possible in 40ms
 	 * Once a ghost is eaten it will respawn and at some point will add interference to our calculations.
 	 */
-	private ArrayList<nodeMove> chaseOrder(int from, ArrayList<GHOST> edible, int distance, int interference) {
+	private ArrayList<nodeMove> chaseOrder(int from, ArrayList<GHOST> edible, int distance, int interference, int depth) {
 		ArrayList<nodeMove> best = new ArrayList<nodeMove>();		
 		
 		for (GHOST g: edible) {
@@ -390,13 +466,13 @@ public class maze {
 					chase[1] -= distance;
 					chase[2] += distance;
 				}
-				int total = distance + chase[1] + chase[2]*edible.size();
-				if (total <= cutoff) {
-					if (interference != -1 && game.getDistance(game.getGhostCurrentNodeIndex(g), game.getGhostInitialNodeIndex(), game.getGhostLastMoveMade(g), DM.PATH)*2/3 < total)
-						total += 50;
+				int total = distance + chase[1] + chase[2]*depth;
+				if (interference > 0 && 3*total/2-interference >= game.getDistance(game.getGhostCurrentNodeIndex(g), game.getGhostInitialNodeIndex(), game.getGhostLastMoveMade(g), DM.PATH))					
+					total += 50;
+				if (total <= cutoff) {					
 					current.add(new nodeMove(chase[0], MOVE.NEUTRAL, g, total));
 					current.addAll(chaseOrder(game.getGhostCurrentNodeIndex(g), remaining, total,
-							(interference == -1)?total + (int)(COMMON_LAIR_TIME*(Math.pow(LAIR_REDUCTION,game.getCurrentLevel()))):interference));
+							(interference==-1)?total + (int)(COMMON_LAIR_TIME*(Math.pow(LAIR_REDUCTION,game.getCurrentLevel()))):interference, depth+1));
 				}
 			}
 			/*
@@ -444,8 +520,16 @@ public class maze {
 		return safe[node];
 	}
 	
+	public boolean hasAccess(int node) {
+		return accessible[node];
+	}
+	
 	public int safeNodes() {
 		return safeNodes;
+	}
+	
+	public float weighting(int node) {
+		return 1f - block[node];
 	}
 	
 	/*
@@ -467,6 +551,6 @@ public class maze {
 	}
 	
 	public ArrayList<nodeMove> chaseOrder(ArrayList<GHOST> edible) {
-		return chaseOrder(game.getPacmanCurrentNodeIndex(), edible, 0, -1);
+		return chaseOrder(game.getPacmanCurrentNodeIndex(), edible, 0, -1, 1);
 	}
 }
