@@ -9,12 +9,14 @@ import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.Random;
 import pacman.controllers.Controller;
+import pacman.entries.ghosts.maze.nodeMove;
 import pacman.game.Game;
 import pacman.game.GameView;
 import pacman.game.Constants.GHOST;
 import pacman.game.Constants.MOVE;
 
 public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {	
+	private static final boolean ZONE_DEBUG = false;
 	
 	/*
 	 * An iterator over the valid moves each ghost has
@@ -127,14 +129,17 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 			}
 		}
 		
-		/*
-		game = now;
-		maze = new maze(game);
-		for (int i=0; i<safe.length; i++) {
-			if (safe[i])
-				GameView.addPoints(game, new Color(0, Math.max(0, 255-nodes[i].pacman), 0, 128), i);
+		if (ZONE_DEBUG) {
+			game = now;
+			maze = new maze(game);
+			for (int i=0; i<game.getNumberOfNodes(); i++) {
+				if (maze.isSafe(i))
+					GameView.addPoints(game, new Color(0, Math.max(0, 255-maze.pacmanDistance(i)), 0, 128), i);
+				else if (maze.hasAccess(i))
+					GameView.addPoints(game, new Color(128, 0, 0, 128), i);
+			}
 		}
-		*/
+		
 		
 		return myMoves;
 	}
@@ -192,7 +197,10 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 	 * The score determines how effective a ghost not involved in blocking the pacman is
 	 */
 	private double scorePositions(ArrayList<ArrayList<Integer>> eventHorizon) {
-		double score = 100*maze.safeNodes();
+		double score = 0;
+		for (int i=0; i<game.getNumberOfNodes(); i++)
+			if (maze.isSafe(i))
+				score += 100;
 		
 		/*
 		 * Add in score for power pills
@@ -210,22 +218,33 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 		
 		/*
 		 * Apply a score to ghosts not contributing to the event horizon
-		 */	
+		 * Either edible ghosts or hunters not in range
+		 */
+		int SAFE_DISTANCE = 40;
 		ArrayList<GHOST> edible = new ArrayList<GHOST>();
-		for (GHOST g: GHOST.values()) {
-			if (eventHorizon.get(g.ordinal()).size() == 0 && game.getGhostLairTime(g) == 0) {
-				if (containsPowerPill || maze.ghostDistance(g, game.getPacmanCurrentNodeIndex()) < 50) //Move away from the pacman
-					score += MAX_DISTANCE - (int)game.getDistance(game.getGhostCurrentNodeIndex(g), game.getPacmanCurrentNodeIndex(), game.getGhostLastMoveMade(g), DM.PATH);
-				else //Move towards the pacman
-					score += (int)game.getDistance(game.getGhostCurrentNodeIndex(g), game.getPacmanCurrentNodeIndex(), game.getGhostLastMoveMade(g), DM.PATH);
-			}
+		for (GHOST g: GHOST.values())
 			if (game.getGhostEdibleTime(g) > 0)
 				edible.add(g);
+		if (edible.size() > 0) {
+			ArrayList<nodeMove> order = maze.chaseOrder(edible);
+			score += 20*maze.chaseScore(order);
+			//Remove the edible ghost that were part of this score
+			for (nodeMove nm: order)
+				edible.remove(nm.ghost);
 		}
 		
-		if (edible.size() > 0) {
-			score += 2*maze.chaseScore(maze.chaseOrder(edible));
+		for (GHOST g: GHOST.values()) {
+			if (eventHorizon.get(g.ordinal()).size() == 0 && game.getGhostLairTime(g) == 0) {
+				int dist = (int)game.getDistance(game.getGhostCurrentNodeIndex(g), game.getPacmanCurrentNodeIndex(), game.getGhostLastMoveMade(g), DM.PATH);
+				if ((edible.contains(g) && dist < game.getGhostEdibleTime(g) / 2) ||
+						(containsPowerPill && game.getDistance(game.getGhostCurrentNodeIndex(g), game.getPacmanCurrentNodeIndex(), game.getGhostLastMoveMade(g).opposite(), DM.PATH) < EDIBLE_TIME/2*(Math.pow(EDIBLE_TIME_REDUCTION, game.getCurrentLevel()))) ||
+						maze.ghostDistance(g, game.getPacmanCurrentNodeIndex()) < SAFE_DISTANCE) //Move away from the pacman
+					score += MAX_DISTANCE - dist;
+				else //Move towards the pacman
+					score += (int)game.getDistance(game.getGhostCurrentNodeIndex(g), game.getPacmanCurrentNodeIndex(), game.getGhostLastMoveMade(g), DM.PATH);
+			}			
 		}
+		
 		return score;		
 	}
 }

@@ -33,18 +33,39 @@ public class MyPacMan extends Controller<MOVE>
 	private float			bestScore; //The total score of all nodes on the best path
 	private int				edibleScore = 0; //The score for edible ghost on the last tick
 	private boolean			waiting = false; //set to true if the edible score is increasing so we should wait to eat a power pill
+	private Game			prev = null; // The game state on the last turn
+	private float			risk = 30; //How much risk we can take (20 = lots, 60 = conservative)
 	
 	private static final Random			rnd = new Random(); //Used to break tie breaks in paths with the same score
 	
 	//Place your game logic here to play the game as Ms Pac-Man
 	public MOVE getMove(Game game,long timeDue)
-	{		
+	{
+		if (prev != null && wasEaten(prev, game))
+			risk += 15;
+		prev = this.game;
+		risk -= 0.001f;
+		
 		this.game = game;
 		maze = new maze(game);
         int best = bestNode();
         MOVE dir = bestDir(best);
         
         return dir;
+	}
+	
+	/*
+	 * Try to work out if the pacman was eaten
+	 */
+	private boolean wasEaten(Game before, Game after) {
+		if (after.gameOver())
+			return true;
+		if (after.getPacmanNumberOfLivesRemaining() < before.getPacmanNumberOfLivesRemaining())
+			return true;
+		if (after.getPacmanNumberOfLivesRemaining() == before.getPacmanNumberOfLivesRemaining() &&
+				after.getScore() >= EXTRA_LIFE_SCORE && before.getScore() < EXTRA_LIFE_SCORE)
+			return true;
+		return false;
 	}
 	
 	private float initialiseScores() {
@@ -132,7 +153,7 @@ public class MyPacMan extends Controller<MOVE>
 		//Find the node in the safe zone furthest from the event horizon - when we are completely blocked, this is the best place to head
 		int node = furthestNode(edge);	
 		if (node != -1) {
-			scores[node]+=2;
+			scores[node]+=3;
 			if (ZONE_DEBUG)
 				GameView.addPoints(game, Color.MAGENTA, node);
 		}
@@ -165,8 +186,8 @@ public class MyPacMan extends Controller<MOVE>
 				if (best == -1 || maze.pacmanDistance(p) < maze.pacmanDistance(best))
 					best = p;
 			}
-		if (best != -1)
-			scores[best] ++;
+		if (best != -1 && safe)
+			scores[best] += POWER_PILL;
 		
 		/*
 		 * Count how many ghosts would be in edible range
@@ -215,9 +236,9 @@ public class MyPacMan extends Controller<MOVE>
 					}
 				}
 			}
-			if (scoreIt) {
+			if (scoreIt) {	
 				scores[pp] += POWER_PILL;
-				if (!safe)
+				if (!safe)					
 					scores[pp] += ESCAPE*maze.weighting(pp);
 				if (mustEat)
 					scores[pp] += 250;
@@ -248,14 +269,9 @@ public class MyPacMan extends Controller<MOVE>
 		float safeZone = initialiseScores();
 		boolean trapped = false;
 		
-		if (safeZone < 85)
+		if (safeZone < risk)
 			trapped = scoreEscapeRoutes();
-		boolean safe = true;
-		if (trapped && safeZone < 50)
-			safe = false;
-		else if (safeZone < 32)
-			safe = false;
-		scorePills(safe);	
+		scorePills(!trapped);	
 		scoreEdibleGhosts();
 	}
 	
