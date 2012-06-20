@@ -6,7 +6,6 @@ import java.util.ArrayList;
 import java.util.Random;
 
 import pacman.controllers.Controller;
-import pacman.entries.pacman.maze.nodeMove;
 import pacman.game.Constants.GHOST;
 import pacman.game.Constants.MOVE;
 import pacman.game.Game;
@@ -33,21 +32,24 @@ public class MyPacMan extends Controller<MOVE>
 	private float			bestScore; //The total score of all nodes on the best path
 	private int				edibleScore = 0; //The score for edible ghost on the last tick
 	private boolean			waiting = false; //set to true if the edible score is increasing so we should wait to eat a power pill
-	private Game			prev = null; // The game state on the last turn
-	private float			risk = 30; //How much risk we can take (20 = lots, 60 = conservative)
+	private float			risk = 20; //How much risk we can take (20 = lots, 60 = conservative)
+	private int				lastDeath = -1;
+	private eatDistance		cache; //A cache of the nodes within EAT_DISTANCE
 	
 	private static final Random			rnd = new Random(); //Used to break tie breaks in paths with the same score
 	
 	//Place your game logic here to play the game as Ms Pac-Man
 	public MOVE getMove(Game game,long timeDue)
 	{
-		if (prev != null && wasEaten(prev, game))
+		if (this.game != null && wasEaten(this.game, game)) {
 			risk += 15;
-		prev = this.game;
+			lastDeath = game.getCurrentLevel();
+		}
 		risk -= 0.001f;
-		
 		this.game = game;
-		maze = new maze(game);
+		if (cache == null)
+			cache = new eatDistance();
+		maze = new maze(game, cache);
         int best = bestNode();
         MOVE dir = bestDir(best);
         
@@ -122,26 +124,44 @@ public class MyPacMan extends Controller<MOVE>
 	}
 	
 	/*
+	 * Count the number of escape routes
+	 * These are nodes on the event horizon blocked by ghosts (as opposed to power pills)
+	 */
+	private int countEscapeRoutes() {
+		int count = 0;
+		int g = 0;
+		for (ArrayList<Integer> gev: maze.eventHorizon())
+			if (g++ < NUM_GHOSTS)
+				count += gev.size();
+		return count;
+	}
+	
+	private int countPowerPills() {
+		int count = 0;
+		for (int i: game.getActivePowerPillsIndices())
+			if (maze.isSafe(i))
+				count++;
+		return count;
+	}
+	
+	/*
 	 * Score the escape routes and return true if trapped
 	 */
-	private boolean scoreEscapeRoutes() {	
-		//Score escape routes and count the number of routes that are blocked by the same ghost
-		int count = 0;
-		int total = 0;
+	private void scoreEscapeRoutes() {	
 		ArrayList<Integer> edge = new ArrayList<Integer>();
 		final Color[] ghostColour = new Color[] { Color.red, Color.pink, Color.cyan, Color.orange };
 		int g = 0;
 		
 		for (ArrayList<Integer> gev: maze.eventHorizon()) {
-			if (gev.size() > 1)
-				count += gev.size() - 1;
 			for (int n: gev) {
 				if (g < NUM_GHOSTS) {
-					total++;
 					int jn = nearestJunction(n);
-					if (jn != -1) {
+					/*
+					 * There are 2 dead-ends in the corner of maze index 2 that cause real problems
+					 * If we find one of those jns we ignore it as an escape route
+					 */
+					if (jn != -1 && !(game.getMazeIndex() == 2 && (jn == 1166 || jn == 1186 || jn == 1213 || jn == 1233)))
 						scores[jn] += ESCAPE*maze.weighting(jn);
-					}
 					if (ZONE_DEBUG)
 						GameView.addPoints(game, ghostColour[g], n);
 				}
@@ -157,8 +177,6 @@ public class MyPacMan extends Controller<MOVE>
 			if (ZONE_DEBUG)
 				GameView.addPoints(game, Color.MAGENTA, node);
 		}
-		
-		return (total <= NUM_GHOSTS || count == 0);
 	}
 	
 	private GHOST nearestHunter(int node)
@@ -178,7 +196,11 @@ public class MyPacMan extends Controller<MOVE>
 		return id;
 	}
 
-	private void scorePills(boolean safe) {
+	/*
+	 * Add in the score for each pill in the safe zone
+	 * Return the node id of the nearest safe pill or -1 if there is none.
+	 */
+	private int scorePills() {
 		int best = -1;
 		for (int p: game.getActivePillsIndices())
 			if (maze.isSafe(p)) {
@@ -186,9 +208,10 @@ public class MyPacMan extends Controller<MOVE>
 				if (best == -1 || maze.pacmanDistance(p) < maze.pacmanDistance(best))
 					best = p;
 			}
-		if (best != -1 && safe)
-			scores[best] += POWER_PILL;
-		
+		return best;
+	}
+	
+	private void scorePowerPills(boolean safe) {
 		/*
 		 * Count how many ghosts would be in edible range
 		 */
@@ -223,7 +246,7 @@ public class MyPacMan extends Controller<MOVE>
 			//This is achieved by not scoring the pp when we are 1 node away
 			boolean scoreIt = (mustEat && !waiting);
 			if (!scoreIt) {
-				if (maze.pacmanDistance(pp) - EAT_DISTANCE > 1)
+				if (maze.pacmanDistance(pp) > 1)
 					scoreIt = true;
 				else { //We are 1 node away from eating power pill
 					GHOST g = nearestHunter(pp);
@@ -231,15 +254,18 @@ public class MyPacMan extends Controller<MOVE>
 						scoreIt = true;
 					else {
 						g = nearestHunter(game.getPacmanCurrentNodeIndex());
-						if (g != null && maze.pacmanDistance(game.getGhostCurrentNodeIndex(g)) <= EAT_DISTANCE + 2)
+						if (g != null && maze.ghostDistance(g, game.getPacmanCurrentNodeIndex()) <= EAT_DISTANCE + 2)
 							scoreIt = true;
 					}
 				}
 			}
 			if (scoreIt) {	
 				scores[pp] += POWER_PILL;
-				if (!safe)					
+				if (!safe) {
 					scores[pp] += ESCAPE*maze.weighting(pp);
+					if (game.getCurrentLevel() == lastDeath)
+						mustEat = true; //If we have lost a life on this level, become cautious
+				}
 				if (mustEat)
 					scores[pp] += 250;
 			}
@@ -267,11 +293,17 @@ public class MyPacMan extends Controller<MOVE>
 	 */
 	private void scoreNodes() {	
 		float safeZone = initialiseScores();
-		boolean trapped = false;
-		
-		if (safeZone < risk)
-			trapped = scoreEscapeRoutes();
-		scorePills(!trapped);	
+		int pill = scorePills();
+		int count = countEscapeRoutes();
+		if (countPowerPills() == 0)
+			count--;
+		boolean trapped = (count <= NUM_GHOSTS && safeZone < 50) || (count <= NUM_GHOSTS+1 && safeZone <= risk);
+		boolean eatPill = (pill != -1 && !trapped & safeZone > risk && (game.getActivePillsIndices().length > 20 || game.getActivePowerPillsIndices().length == 0));
+		if (eatPill)
+			scores[pill] += POWER_PILL; //score this nearest pill slightly higher than a power pill to make it a better choice
+		else
+			scoreEscapeRoutes();
+		scorePowerPills(!trapped);	
 		scoreEdibleGhosts();
 	}
 	
