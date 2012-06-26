@@ -5,11 +5,11 @@ import static pacman.game.Constants.*;
 import java.awt.Color;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 import java.util.Random;
 import pacman.controllers.Controller;
-import pacman.entries.ghosts.maze.nodeMove;
 import pacman.game.Game;
 import pacman.game.GameView;
 import pacman.game.Constants.GHOST;
@@ -71,6 +71,7 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 	
 	private Game 			game;
 	private maze			maze;
+	private eatDistance		cache;
 	private static final Random			rnd = new Random();
 	private static final int			MAX_DISTANCE = 350;	//The longest path in all mazes.
 	
@@ -80,7 +81,7 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 		double best = Double.MAX_VALUE;
 		MOVE[][] options = new MOVE[NUM_GHOSTS][];
 		MOVE[] nothing = { MOVE.NEUTRAL };
-		
+				
 		boolean skip = true;
 		for (GHOST g: GHOST.values()) {
 			int gi = g.ordinal();
@@ -89,6 +90,11 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 				options[gi] = nothing;
 			if (now.doesGhostRequireAction(g))
 				skip = false;
+		}
+		
+		if (cache == null) {
+			cache = new eatDistance();
+			skip = false; //Even though we don't need to - we work out our moves, fill the cache and incur the java timeouts while it is safe
 		}
 
 		/*
@@ -107,12 +113,14 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 				 * Pick the largest score the pacman can get
 				 */
 				double highest = -1;
-				for (MOVE pacman: now.getPossibleMoves(now.getPacmanCurrentNodeIndex())) {					
-					game = safeAdvance(now, pacman, testMoves);							
+				for (MOVE pacman: now.getPossibleMoves(now.getPacmanCurrentNodeIndex())) {	
+					game = now.copy();
+					game.setGlobalReversals(false);
+					game.advanceGame(pacman, testMoves);							
 					double score = rnd.nextDouble();
 					
 					if (!wasEaten(now, game)) {
-						maze = new maze(game);
+						maze = new maze(game, cache, false);
 						score += scorePositions(maze.eventHorizon());
 					}
 				
@@ -131,7 +139,7 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 		
 		if (ZONE_DEBUG) {
 			game = now;
-			maze = new maze(game);
+			maze = new maze(game, cache, false);
 			for (int i=0; i<game.getNumberOfNodes(); i++) {
 				if (maze.isSafe(i))
 					GameView.addPoints(game, new Color(0, Math.max(0, 255-maze.pacmanDistance(i)), 0, 128), i);
@@ -140,44 +148,9 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 			}
 		}
 		
-		
 		return myMoves;
 	}
-	
-	/*
-	 * Advance the game state with the given set of moves
-	 * Check for global reverses and try again if one occurs
-	 */
-	private Game safeAdvance(Game game, MOVE pacman, EnumMap<GHOST,MOVE> testMoves) {
-		Game result = null;
-		boolean reversed = true;
-		
-		/*
-		 * Apply the moves. If we get a random game reverse, try again.
-		 * If a ghost's last move is the opposite of what we expect and we haven't just eaten a power pill
-		 * then a reverse has happened. Ghosts in the lair don't move so we can't check them.
-		 */
-		GHOST toCheck = null;
-		for (GHOST g: GHOST.values())
-			if (game.getGhostLairTime(g) == 0 && game.getGhostLastMoveMade(g) != MOVE.NEUTRAL) {
-				toCheck = g;
-				break;
-			}
-		
-		while (reversed) {
-			reversed = false;
-			result = game.copy();
-			result.advanceGame(pacman, testMoves);			
-			if (!result.gameOver() && toCheck != null &&
-					result.getGhostLastMoveMade(toCheck) == game.getGhostLastMoveMade(toCheck).opposite() &&
-					result.getCurrentLevel() == game.getCurrentLevel() &&
-					result.getNumberOfActivePowerPills() == game.getNumberOfActivePowerPills())
-				reversed = true;
-		}	
-		
-		return result;
-	}
-	
+
 	/*
 	 * Try to work out if the pacman was eaten
 	 */
@@ -196,7 +169,7 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 	 * Look at the board positions and return a score - higher is better for the pacman
 	 * The score determines how effective a ghost not involved in blocking the pacman is
 	 */
-	private double scorePositions(ArrayList<ArrayList<Integer>> eventHorizon) {
+	private double scorePositions(ArrayList<HashSet<Integer>> eventHorizon) {
 		double score = 0;
 		for (int i=0; i<game.getNumberOfNodes(); i++)
 			if (maze.isSafe(i))

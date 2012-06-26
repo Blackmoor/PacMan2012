@@ -3,6 +3,7 @@ package pacman.entries.pacman;
 
 import java.awt.Color;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Random;
 
 import pacman.controllers.Controller;
@@ -32,24 +33,25 @@ public class MyPacMan extends Controller<MOVE>
 	private float			bestScore; //The total score of all nodes on the best path
 	private int				edibleScore = 0; //The score for edible ghost on the last tick
 	private boolean			waiting = false; //set to true if the edible score is increasing so we should wait to eat a power pill
-	private float			risk = 20; //How much risk we can take (20 = lots, 60 = conservative)
+	private float			risk = 30; //How much risk we can take (20 = lots, 60 = conservative)
 	private int				lastDeath = -1;
 	private eatDistance		cache; //A cache of the nodes within EAT_DISTANCE
 	
 	private static final Random			rnd = new Random(); //Used to break tie breaks in paths with the same score
 	
 	//Place your game logic here to play the game as Ms Pac-Man
-	public MOVE getMove(Game game,long timeDue)
+	public MOVE getMove(Game g,long timeDue)
 	{
-		if (this.game != null && wasEaten(this.game, game)) {
-			risk += 15;
+		if (this.game != null && wasEaten(game, g)) {
+			risk += 20;
 			lastDeath = game.getCurrentLevel();
+			//System.out.printf("Game level %d (%d): DIED\n", game.getCurrentLevel(), game.getCurrentLevelTime());
 		}
 		risk -= 0.001f;
-		this.game = game;
+		game = g;
 		if (cache == null)
 			cache = new eatDistance();
-		maze = new maze(game, cache);
+		maze = new maze(game, cache, true);
         int best = bestNode();
         MOVE dir = bestDir(best);
         
@@ -82,7 +84,7 @@ public class MyPacMan extends Controller<MOVE>
 				scores[node] = 1;
 				result++;
 				if (ZONE_DEBUG)
-					GameView.addPoints(game, new Color(0, maze.weighting(node), 0), node);
+					GameView.addPoints(game, new Color(0f, (0.3f+maze.weighting(node)*0.7f), 0f), node);
 			} else if (ZONE_DEBUG && maze.hasAccess(node))
 				GameView.addPoints(game, new Color(0.5f, 0, 0), node);
 		}
@@ -94,7 +96,7 @@ public class MyPacMan extends Controller<MOVE>
 	 * This is called with the event horizon and used to find the node to head to if there are no escape routes
 	 * as it will give us the longest survival time and the best chance for a random game reverse to occur
 	 */
-	private int furthestNode(ArrayList<Integer> edge) {
+	private int furthestNode(HashSet<Integer> edge) {
 		//We use the event horizon as the starting locations for a breadth first search over the accessible zone
 		int last = -1;
 		boolean[] visited = new boolean[game.getNumberOfNodes()];
@@ -105,13 +107,13 @@ public class MyPacMan extends Controller<MOVE>
 			}
 			/*
 			 * New edge is 1 move from each point on the current edge
-			 * Only allow moves in the save zone (score > 0)
+			 * Only allow moves in the accessible zone
 			 */
-			ArrayList<Integer>	next = new ArrayList<Integer>();
+			HashSet<Integer>	next = new HashSet<Integer>();
 			for (int n: edge) {
 				for (MOVE d: game.getPossibleMoves(n)) {
 					int node = game.getNeighbour(n, d);
-					if (!visited[node] && maze.hasAccess(node) && !next.contains(node))
+					if (!visited[node] && maze.hasAccess(node))
 						next.add(node);
 				}
 				last = n;
@@ -124,16 +126,37 @@ public class MyPacMan extends Controller<MOVE>
 	}
 	
 	/*
-	 * Count the number of escape routes
-	 * These are nodes on the event horizon blocked by ghosts (as opposed to power pills)
+	 * Count the number of escape routes - junctions near the event horizon that are not sure to be blocked
 	 */
 	private int countEscapeRoutes() {
-		int count = 0;
+		final Color[] ghostColour = new Color[] { Color.red, Color.pink, Color.cyan, Color.orange };
+		HashSet<Integer> jns = new HashSet<Integer>();
 		int g = 0;
-		for (ArrayList<Integer> gev: maze.eventHorizon())
-			if (g++ < NUM_GHOSTS)
-				count += gev.size();
-		return count;
+		int unused = 0;
+		for (HashSet<Integer> gev: maze.eventHorizon()) {
+			if (g < NUM_GHOSTS) {
+				if (gev.size() != 1)
+					unused++;
+				for (int n: gev) {				
+					int jn = nearestJunction(n);
+					//The 4 junctions at the bottom of maze 2 are a nightmare and ignored as possible escape routes
+					if (jn != -1 && !(game.getMazeIndex() == 2 && (jn == 1166 || jn == 1186 || jn == 1213 || jn == 1233)))
+						jns.add(jn);
+					if (ZONE_DEBUG)
+						GameView.addPoints(game, ghostColour[g], n);
+				}
+			}
+			g++;		
+		}
+		
+		int count = 0;
+		for (int jn: jns)
+			if (maze.weighting(jn) > 0)
+				count++;
+		
+		if (count > unused)
+			return count - unused;
+		return 0;
 	}
 	
 	private int countPowerPills() {
@@ -145,32 +168,51 @@ public class MyPacMan extends Controller<MOVE>
 	}
 	
 	/*
-	 * Score the escape routes and return true if trapped
+	 * Score the escape routes - the junctions next to the nodes on the event horizon
+	 * We can pick the ones most likely to give an escape route or the ones most likely to lure the ghosts together
 	 */
-	private void scoreEscapeRoutes() {	
-		ArrayList<Integer> edge = new ArrayList<Integer>();
-		final Color[] ghostColour = new Color[] { Color.red, Color.pink, Color.cyan, Color.orange };
+	private void scoreEscapeRoutes(boolean lure) {	
+		HashSet<Integer> edge = new HashSet<Integer>();
+		HashSet<Integer> jns = new HashSet<Integer>();
 		int g = 0;
-		
-		for (ArrayList<Integer> gev: maze.eventHorizon()) {
+		for (HashSet<Integer> gev: maze.eventHorizon()) {
 			for (int n: gev) {
+				edge.add(n);
 				if (g < NUM_GHOSTS) {
 					int jn = nearestJunction(n);
-					/*
-					 * There are 2 dead-ends in the corner of maze index 2 that cause real problems
-					 * If we find one of those jns we ignore it as an escape route
-					 */
+					//The 4 junctions at the bottom of maze 2 are a nightmare and ignored as possible escape routes
 					if (jn != -1 && !(game.getMazeIndex() == 2 && (jn == 1166 || jn == 1186 || jn == 1213 || jn == 1233)))
-						scores[jn] += ESCAPE*maze.weighting(jn);
-					if (ZONE_DEBUG)
-						GameView.addPoints(game, ghostColour[g], n);
+						jns.add(jn);
 				}
-				edge.add(n);
 			}
-			g++;
+			g++;		
 		}
 		
-		//Find the node in the safe zone furthest from the event horizon - when we are completely blocked, this is the best place to head
+		int best = -1;
+		int converge = Integer.MAX_VALUE;
+		if (lure) {			
+			for (int jn: jns) {
+				//Pick the junction with the smallest difference between the pacman and ghost distances
+				int diff = 0;
+				for (GHOST gh: GHOST.values()) {
+					int dist = maze.ghostDistance(gh, jn) - EAT_DISTANCE - maze.pacmanDistance(jn);
+					if (dist < 0)
+						dist = 100;
+					diff += dist;
+				}
+				if (diff < converge) {
+					converge = diff;
+					best = jn;
+				}
+			}
+		}
+		if (best == -1)
+			for (int jn: jns)
+				scores[jn] += ESCAPE*maze.weighting(jn);
+		else
+			scores[best] += ESCAPE;
+		
+		//Find the node in the accessible zone furthest from the event horizon - when we are completely blocked, this is the best place to head		
 		int node = furthestNode(edge);	
 		if (node != -1) {
 			scores[node]+=3;
@@ -211,31 +253,38 @@ public class MyPacMan extends Controller<MOVE>
 		return best;
 	}
 	
-	private void scorePowerPills(boolean safe) {
+	/*
+	 * Find the best power pill to eat
+	 * 
+	 * Only score it if
+	 * 1. We need to eat a power pill to survive
+	 * 2. We want to eat it because there are lots of ghosts in range that would become edible
+	 */
+	private void scorePowerPills(boolean danger) {
 		/*
-		 * Count how many ghosts would be in edible range
+		 * Work out if we should wait because the estimated score for eating ghosts is getting bigger
 		 */
 		ArrayList<GHOST> ghosts = new ArrayList<GHOST>();
 		for (GHOST g: GHOST.values())
 			if (game.getGhostLairTime(g) == 0)
 				ghosts.add(g);
 		int score = maze.chaseScore(maze.chaseOrder(ghosts));
-		waiting = (score > edibleScore);
+		waiting = (score > 0 && score >= edibleScore);
 		edibleScore = score;		
-		//System.out.printf("Tick %d - edible score %d\n", game.getTotalTime(), score);
+		//System.out.printf("Tick %d - edible score %d, waiting = %s\n", game.getTotalTime(), score, waiting);
 		
 		/*
-		 * Pick the nearest safe power pill that wants to be eaten.
-		 * If none want to be eaten, pick the nearest power pill
+		 * Find the nearest safe power pill that wants to be eaten.
+		 * If none want to be eaten, pick the nearest safe power pill
 		 */
 		int dist = Integer.MAX_VALUE;
 		int pp = -1;
-		boolean mustEat = false; //set to true if we are only comparing power pills we want to eat
+		boolean wantsToBeEaten = false; //set to true if we are only comparing power pills we want to eat
 		for (int p: game.getActivePowerPillsIndices()) {
 			boolean eat = eatMe(p); //Do we want to eat this power pill
-			if (maze.hasAccess(p) && ((eat && !mustEat) || ((eat || !mustEat) && maze.pacmanDistance(p) < dist))) {
+			if (maze.hasAccess(p) && ((eat && !wantsToBeEaten) || ((eat || !wantsToBeEaten) && maze.pacmanDistance(p) < dist))) {
 				if (eat)
-					mustEat = true;
+					wantsToBeEaten = true;
 				pp = p;
 				dist = maze.pacmanDistance(p);
 			}
@@ -244,7 +293,7 @@ public class MyPacMan extends Controller<MOVE>
 		if (pp != -1) {
 			//If we don't want to eat the power pill yet we hover near by
 			//This is achieved by not scoring the pp when we are 1 node away
-			boolean scoreIt = (mustEat && !waiting);
+			boolean scoreIt = (wantsToBeEaten && !waiting);
 			if (!scoreIt) {
 				if (maze.pacmanDistance(pp) > 1)
 					scoreIt = true;
@@ -260,13 +309,12 @@ public class MyPacMan extends Controller<MOVE>
 				}
 			}
 			if (scoreIt) {	
-				scores[pp] += POWER_PILL;
-				if (!safe) {
+				if (danger) { //Treat this as an escape route
 					scores[pp] += ESCAPE*maze.weighting(pp);
-					if (game.getCurrentLevel() == lastDeath)
-						mustEat = true; //If we have lost a life on this level, become cautious
+					if (lastDeath == game.getCurrentLevel())
+						scores[pp] += ESCAPE; //We died on this level so reward a safer approach
 				}
-				if (mustEat)
+				if (wantsToBeEaten) //Either end of level or many ghosts in edible range
 					scores[pp] += 250;
 			}
 		}
@@ -290,25 +338,39 @@ public class MyPacMan extends Controller<MOVE>
 	/*
 	 * Populates the score for each node
 	 * -1 means unsafe, anything positive means safe, the higher the score the better
+	 * 
+	 * We can run in 3 modes
+	 * 1. Eat pills
+	 * 2. Lure ghosts
+	 * 3. Escape
 	 */
 	private void scoreNodes() {	
 		float safeZone = initialiseScores();
 		int pill = scorePills();
-		int count = countEscapeRoutes();
-		if (countPowerPills() == 0)
-			count--;
-		boolean trapped = (count <= NUM_GHOSTS && safeZone < 50) || (count <= NUM_GHOSTS+1 && safeZone <= risk);
-		boolean eatPill = (pill != -1 && !trapped & safeZone > risk && (game.getActivePillsIndices().length > 20 || game.getActivePowerPillsIndices().length == 0));
-		if (eatPill)
-			scores[pill] += POWER_PILL; //score this nearest pill slightly higher than a power pill to make it a better choice
-		else
-			scoreEscapeRoutes();
-		scorePowerPills(!trapped);	
+		int esc = countEscapeRoutes();
+		if (esc > 0 && lastDeath == game.getCurrentLevel()) //If we died pretend we have 1 less escape route making us more cautious
+			esc--;
+		int cpp = countPowerPills();
+		boolean danger = (maze.access() < 40 && esc == 0);
+		boolean needPowerPill = (cpp > 0 && danger);
+		boolean escape = (needPowerPill || (maze.access() < 40 && esc <= 2 && cpp == 0));
+		boolean eatPill = (pill != -1 && !escape && safeZone > risk && (game.getActivePillsIndices().length > 20 || game.getActivePowerPillsIndices().length == 0));
+		boolean noMorePowerPills = (game.getActivePowerPillsIndices().length == 0);
+		boolean lure = (!noMorePowerPills && !escape && safeZone > risk);
+
+		if (eatPill && (noMorePowerPills || game.getCurrentLevelTime() < 500)) {
+			//System.out.printf("Game level %d (%d): mode PILL\n", game.getCurrentLevel(), game.getCurrentLevelTime());
+			scores[pill] += ESCAPE; //score this nearest pill as if it were an escape route
+		} else {
+			//System.out.printf("Game level %d (%d): mode %s\n", game.getCurrentLevel(), game.getCurrentLevelTime(), lure?"LURE":"ESCAPE");
+			scoreEscapeRoutes(lure);
+		}
+		scorePowerPills(needPowerPill);	
 		scoreEdibleGhosts();
 	}
 	
 	/*
-	 * Find the nearest junction to this node in the safe zone
+	 * Find the nearest junction to this node in the accessible zone
 	 */
 	private int nearestJunction(int node) {	
 		int prev = -1;
@@ -422,7 +484,13 @@ public class MyPacMan extends Controller<MOVE>
 			
 			//Find a valid direction who's opposite direction is invalid
 			for (MOVE v: game.getPossibleMoves(game.getPacmanCurrentNodeIndex()))
-				if (game.getNeighbour(game.getPacmanCurrentNodeIndex(), v.opposite()) == -1)
+				if (game.getNeighbour(game.getPacmanCurrentNodeIndex(), v.opposite()) == -1 &&
+						maze.isSafe(game.getNeighbour(game.getPacmanCurrentNodeIndex(), v)))
+					return v;
+			
+			//No safe way to stay here - pick a safe move
+			for (MOVE v: game.getPossibleMoves(game.getPacmanCurrentNodeIndex()))
+				if (maze.isSafe(game.getNeighbour(game.getPacmanCurrentNodeIndex(), v)))
 					return v;
 			
 			return MOVE.NEUTRAL;
