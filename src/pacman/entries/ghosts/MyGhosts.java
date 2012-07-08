@@ -120,7 +120,10 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 					double score = rnd.nextDouble();
 					
 					if (!wasEaten(now, game)) {
-						maze = new maze(game, cache, false);
+						if (maze == null)
+							maze = new maze(game, cache, false);
+						else
+							maze.update(game);
 						score += scorePositions(maze.eventHorizon());
 					}
 				
@@ -166,28 +169,54 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 	}
 	
 	/*
+	 * Count the number of escape routes - junctions near the event horizon that are not sure to be blocked
+	 */
+	private int countEscapeRoutes() {
+		int g = 0;
+		int count = 0; //How many valid escape routes we have
+		for (HashSet<Integer> gev: maze.eventHorizon()) {
+			if (g < NUM_GHOSTS) {
+				int options = 0; //How many valid escape routes we have for this ghost
+				for (int n: gev)				
+					if (!maze.willBlock(n))
+						options++;
+				if (options > 1)
+					count += (options - 1);
+			}
+			g++;		
+		}
+		//System.out.printf("Escape Routes: %d\n", count);
+		return count;
+	}
+	
+	/*
 	 * Look at the board positions and return a score - higher is better for the pacman
 	 * The score determines how effective a ghost not involved in blocking the pacman is
 	 */
 	private double scorePositions(ArrayList<HashSet<Integer>> eventHorizon) {
 		double score = 0;
+		
+		if (countEscapeRoutes() > 0)
+			score += 1000;
+		
 		for (int i=0; i<game.getNumberOfNodes(); i++)
-			if (maze.isSafe(i))
-				score += 100;
+			if (maze.hasAccess(i))
+				score += 10;
 		
 		/*
 		 * Add in score for power pills
 		 */
 		boolean containsPowerPill = false;
 		for (int pp: game.getActivePowerPillsIndices())
-			if (maze.isSafe(pp)) {
-				score += POWER_PILL;
+			if (maze.hasAccess(pp))
 				containsPowerPill = true;
-			}
+		
+		if (containsPowerPill)
+			score += 1500;
 		
 		for (int p: game.getActivePillsIndices())
 			if (maze.isSafe(p))
-				score += PILL;
+				score ++;
 		
 		/*
 		 * Apply a score to ghosts not contributing to the event horizon
@@ -200,21 +229,28 @@ public class MyGhosts extends Controller<EnumMap<GHOST,MOVE>> {
 				edible.add(g);
 		if (edible.size() > 0) {
 			ArrayList<nodeMove> order = maze.chaseOrder(edible);
-			score += 20*maze.chaseScore(order);
+			int edibleScore = maze.chaseScore(order);
+			
+			//System.out.printf("Chase Score %d\n", edibleScore);
+			score += edibleScore;
 			//Remove the edible ghost that were part of this score
 			for (nodeMove nm: order)
 				edible.remove(nm.ghost);
 		}
 		
 		for (GHOST g: GHOST.values()) {
-			if (eventHorizon.get(g.ordinal()).size() == 0 && game.getGhostLairTime(g) == 0) {
-				int dist = (int)game.getDistance(game.getGhostCurrentNodeIndex(g), game.getPacmanCurrentNodeIndex(), game.getGhostLastMoveMade(g), DM.PATH);
-				if ((edible.contains(g) && dist < game.getGhostEdibleTime(g) / 2) ||
+			if (eventHorizon.get(g.ordinal()).size() == 0) {
+				int dist;
+				if (game.getGhostLairTime(g) == 0)
+					dist = (int)game.getDistance(game.getGhostCurrentNodeIndex(g), game.getPacmanCurrentNodeIndex(), game.getGhostLastMoveMade(g), DM.PATH);
+				else
+					dist = game.getGhostLairTime(g) + (int)game.getDistance(game.getGhostInitialNodeIndex(), game.getPacmanCurrentNodeIndex(), DM.PATH);
+				if ((edible.contains(g) && game.getGhostEdibleTime(g) > 2*dist/3 - EAT_DISTANCE) ||
 						(containsPowerPill && game.getDistance(game.getGhostCurrentNodeIndex(g), game.getPacmanCurrentNodeIndex(), game.getGhostLastMoveMade(g).opposite(), DM.PATH) < EDIBLE_TIME/2*(Math.pow(EDIBLE_TIME_REDUCTION, game.getCurrentLevel()))) ||
 						maze.ghostDistance(g, game.getPacmanCurrentNodeIndex()) < SAFE_DISTANCE) //Move away from the pacman
-					score += MAX_DISTANCE - dist;
+					score -= dist;
 				else //Move towards the pacman
-					score += (int)game.getDistance(game.getGhostCurrentNodeIndex(g), game.getPacmanCurrentNodeIndex(), game.getGhostLastMoveMade(g), DM.PATH);
+					score += dist;
 			}			
 		}
 		
